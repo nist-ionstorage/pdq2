@@ -12,16 +12,16 @@ _io = [
             Subsignal("rdl", Pins("P97")), # 
             Subsignal("rxfl", Pins("P54")),
             # NET "clk_comm1" TNM_NET = clk_comm1;
-            Subsignal("addr", Pins("P32 P6 P14 P43")),
+            Subsignal("addr", Pins(*"P32 P6 P14 P43".split())),
             # triggered_writing, GO_1
-            Subsignal("write_in", 0, Pins("P159")), # input for G1?
-            Subsignal("write_out", 0, Pins("P102")), #G1?
+            Subsignal("write_in", Pins("P159")), # input for G1?
+            Subsignal("write_out", Pins("P102")), #G1?
             IOStandard("LVCMOS33")),
 
         ("ctrl", 0,
-            Subsignal("trigger", 0, Pins("P110")), #wave_trigger F1 
-            Subsignal("branch", 0, Pins("P118 P124 P98")),
-            Subsignal("aux", 0, Pins("P99")), #F5 out
+            Subsignal("trigger", Pins("P110")), #wave_trigger F1 
+            Subsignal("branch", Pins(*"P118 P124 P98".split())),
+            Subsignal("aux", Pins("P99")), #F5 out
             IOStandard("LVCMOS33")
             ),
 
@@ -75,5 +75,5 @@ _io = [
 
 class Platform(XilinxISEPlatform):
     def __init__(self):
-        XilinxISEPlatform.__init__(self, "xc3s500e-4fg320", _io,
+        XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,
                 lambda p: CRG_SE(p, "clk", "reset", 20.0))
