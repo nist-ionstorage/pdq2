@@ -63,7 +63,7 @@ _io = [
             Subsignal("clk_n", Pins("P63"), IOStandard("LVCMOS25")),
             Subsignal("data_p", Pins(*
                 "P2 P4 P8 P11 P15 P18 P22 P24 "
-                "P28 P30 P25 P35 P39 P41 P47 P49".split()),
+                "P28 P30 P33 P35 P39 P41 P47 P49".split()),
                 IOStandard("LVDS_25")),
             Subsignal("data_n", Pins(*
                 "P3 P5 P9 P12 P16 P19 P23 P25 "
