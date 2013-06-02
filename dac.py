@@ -17,54 +17,82 @@ frame_layout = [
 
 
 class DacReader(Module):
-    def __init__(self, pads):
-        self.specials.mem = Memory(width=16, depth=6144)
+    def __init__(self, pads, mem_data_width=16, mem_adr_width=13,
+            mem_depth=6144):
+        self.specials.mem = Memory(width=mem_data_width, depth=mem_depth)
         read = self.mem.get_port()
         self.specials += read
         self.order = Signal(2)
         self.branch = Signal(3)
-        self.branch_addr = Array(Signal(13) for _ in range(8))
+        self.branch_adr = Array(Signal(mem_adr_width) for _ in range(8))
+        self.branch_start = Signal(mem_adr_width)
+        self.branch_end = Signal(mem_adr_width)
+        self.sync += [
+                If(self.branch == 0,
+                    self.branch_start.eq(0),
+                ).Else(
+                    self.branch_start.eq(self.branch_adr[self.branch-1]),
+                ),
+                self.branch_end.eq(self.branch_adr[self.branch]),
+                ]
 
         self.frame_out = Source(frame_layout)
         self.busy = ~self.frame_out.stb
 
-        states = "INIT DT V0 V1A V1B V2A V2B V2C V3A V3B V3C IDLE".split()
+        states = "INIT V0 DT V1A V1B V2A V2B V2C V3A V3B V3C IDLE".split()
         fsm = FSM(*states)
         self.submodules += fsm
 
         fp = self.frame_out.payload
         fsm.act(fsm.INIT,
-                read.adr.eq(self.branch_addr[self.branch]),
-                self.frame_out.stb.eq(0))
-        fsm.act(fsm.DT, fp.wait.eq(read.dat_r[15]))
-        fsm.act(fsm.DT, fp.dt.eq(read.dat_r[:15]))
-        fsm.act(fsm.V0, fp.v0[32:].eq(read.dat_r))
-        fsm.act(fsm.V1A, fp.v1[32:].eq(read.dat_r))
-        fsm.act(fsm.V1B, fp.v1[16:32].eq(read.dat_r))
-        fsm.act(fsm.V2A, fp.v2[32:].eq(read.dat_r))
-        fsm.act(fsm.V2B, fp.v2[16:32].eq(read.dat_r))
-        fsm.act(fsm.V2C, fp.v2[:16].eq(read.dat_r))
-        fsm.act(fsm.V3A, fp.v3[32:].eq(read.dat_r))
-        fsm.act(fsm.V3B, fp.v3[16:32].eq(read.dat_r))
-        fsm.act(fsm.V3C, fp.v3[:16].eq(read.dat_r))
-        for state in "DT V0 V1A V1B V2A V2B V2C V3A V3B V3C".split():
+                If((read.adr < self.branch_start) | 
+                   (read.adr >= self.branch_end),
+                    read.adr.eq(self.branch_start),
+                ),
+                )
+        fsm.act(fsm.V0, fp.v0[32:].eq(read.dat_r[:16]))
+        fsm.act(fsm.DT,
+                fp.wait.eq(read.dat_r[15]),
+                If(read.dat_r[15],
+                    fp.dt.eq(1 + ~read.dat_r[:15]),
+                ).Else(
+                    fp.dt.eq(read.dat_r[:15]),
+                ),
+                )
+        fsm.act(fsm.V1A, fp.v1[32:].eq(read.dat_r[:16]))
+        fsm.act(fsm.V1B, fp.v1[16:32].eq(read.dat_r[:16]))
+        fsm.act(fsm.V2A, fp.v2[32:].eq(read.dat_r[:16]))
+        fsm.act(fsm.V2B, fp.v2[16:32].eq(read.dat_r[:16]))
+        fsm.act(fsm.V2C, fp.v2[:16].eq(read.dat_r[:16]))
+        fsm.act(fsm.V3A, fp.v3[32:].eq(read.dat_r[:16]))
+        fsm.act(fsm.V3B, fp.v3[16:32].eq(read.dat_r[:16]))
+        fsm.act(fsm.V3C, fp.v3[:16].eq(read.dat_r[:16]))
+        for state in "V0 DT V1A V1B V2A V2B V2C V3A V3B V3C".split():
             fsm.act(getattr(fsm, state),
                 read.adr.eq(read.adr + 1))
-        fsm.act(fsm.V0, If(self.order <= 0,
+        fsm.act(fsm.V0, If(self.order == 0,
+                fp.wait.eq(0),
+                fp.dt.eq(1),
                 fp.v1.eq(0),
                 fp.v2.eq(0),
                 fp.v3.eq(0),
+                self.frame_out.stb.eq(1),
                 fsm.next_state(fsm.IDLE)))
-        fsm.act(fsm.V1B, If(self.order <= 1,
+        fsm.act(fsm.V1B, If(self.order == 1,
                 fp.v2.eq(0),
                 fp.v3.eq(0),
+                self.frame_out.stb.eq(1),
                 fsm.next_state(fsm.IDLE)))
-        fsm.act(fsm.V2C, If(self.order <= 2,
+        fsm.act(fsm.V2C, If(self.order == 2,
                 fp.v3.eq(0),
+                self.frame_out.stb.eq(1),
+                fsm.next_state(fsm.IDLE)))
+        fsm.act(fsm.V3C, If(self.order == 3,
+                self.frame_out.stb.eq(1),
                 fsm.next_state(fsm.IDLE)))
         fsm.act(fsm.IDLE,
-                self.frame_out.stb.eq(1),
                 If(self.frame_out.ack,
+                    self.frame_out.stb.eq(0),
                     fsm.next_state(fsm.INIT),
                 ).Else(
                     fsm.next_state(fsm.IDLE),
@@ -74,36 +102,29 @@ class DacReader(Module):
 class DacOut(Module):
     def __init__(self, pads):
         self.frame_in = Sink(frame_layout)
-        self.busy = ~self.frame_in.ack
-
-        self.trigger = Signal()
-
-        t = Signal(15)
         frame = Record(frame_layout)
 
+        self.trigger = Signal()
+        t = Signal(15)
+        
+        self.busy = t < frame.dt
+
         self.sync += [
-                If(t == 0,
-                    self.frame_in.ack.eq(0),
-                    If(self.trigger,
-                        t.eq(t + 1),
-                    ),
-                ).Elif(t < frame.dt,
+                If(t < frame.dt,
+                    frame.v0.eq(frame.v0 + frame.v1),
+                    frame.v1.eq(frame.v1 + frame.v2),
+                    frame.v2.eq(frame.v2 + frame.v3),
                     t.eq(t + 1),
-                ).Elif((t >= frame.dt) & self.frame_in.stb,
-                    frame.raw_bits().eq(self.frame_in.raw_bits()),
+                    self.frame_in.ack.eq(0),
+                ).Elif(self.frame_in.stb &
+                        (self.trigger | ~self.frame_in.payload.wait),
                     self.frame_in.ack.eq(1),
+                    frame.raw_bits().eq(self.frame_in.raw_bits()),
                     t.eq(0),
                 ),
                 ]
 
-        self.sync += [
-                frame.v0.eq(frame.v0 + frame.v1),
-                frame.v1.eq(frame.v1 + frame.v2),
-                frame.v2.eq(frame.v2 + frame.v3),
-                ]
-
-        out = Signal(16)
-        self.comb += out.eq(frame.v0[-16:])
+        out = frame.v0[-16:]
        
         clk = ClockSignal()
         self.comb += [
