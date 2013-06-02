@@ -74,8 +74,7 @@ class Parser(Module):
     def __init__(self, pads, *dacs):
         self.data_in = Sink(data)
         self.busy = ~self.data_in.ack
-        mems = [dac.reader.mem.get_port(write_capable=True,
-                we_granularity=8) for dac in dacs]
+        mems = [dac.reader.mem.get_port(write_capable=True) for dac in dacs]
         self.specials += mems
 
         states = "CMD ARG1 ARG2 DATA PARSE".split()
