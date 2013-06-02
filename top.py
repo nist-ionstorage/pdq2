@@ -9,15 +9,6 @@ from dac import Dac
 from comm import Comm
 from ctrl import Ctrl
 
-clk_freq = int(50e6)
-mem_size = 6144 # in bytes
-clk_period_ns = 1000000000/clk_freq
-
-def ns(t, margin=True):
-    if margin:
-        t += clk_period_ns/2
-    return ceil(t/clk_period_ns)
-
 
 class Soc(Module):
     def __init__(self, platform):

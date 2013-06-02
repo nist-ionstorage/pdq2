@@ -47,6 +47,7 @@ class Ft245r_rx(Module):
                     t.eq(t + 1),
                 ).Else(
                     t.eq(0),
+                    #self.data_out.payload.data.eq(pads.data),
                     self.data_out.stb.eq(1),
                     fsm.next_state(fsm.HOLD),
                 ))
@@ -73,9 +74,14 @@ class Parser(Module):
     def __init__(self, pads, *dacs):
         self.data_in = Sink(data)
         self.busy = ~self.data_in.ack
-        #mem_write = self.mem.get_port(write_capable=True,
-        #        we_granularity=8)
-        #self.specials += mem_write
+        mems = [dac.reader.mem.get_port(write_capable=True,
+                we_granularity=8) for dac in dacs]
+        self.specials += mems
+
+        states = "CMD DATA".split()
+        fsm = FSM(*states)
+        self.submodules += fsm
+
 
 
 class Comm(Module):
