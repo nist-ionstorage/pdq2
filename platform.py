@@ -15,13 +15,13 @@ _io = [
             Subsignal("addr", Pins("P32 P6 P14 P43")),
             # triggered_writing, GO_1
             Subsignal("write_in", 0, Pins("P159")), # input for G1?
+            Subsignal("write_out", 0, Pins("P102")), #G1?
             IOStandard("LVCMOS33")),
 
         ("ctrl", 0,
-            Subsignal("wave", 0, Pins("P110")), #F1
-            Subsignal("write_out", 0, Pins("P102")), #G1?
-            Subsignal("aux", 0, Pins("P99")), #F5 out
+            Subsignal("trigger", 0, Pins("P110")), #wave_trigger F1 
             Subsignal("branch", 0, Pins("P118 P124 P98")),
+            Subsignal("aux", 0, Pins("P99")), #F5 out
             IOStandard("LVCMOS33")
             ),
 
@@ -71,6 +71,7 @@ _io = [
             ),
         #TIMEGRP "dac_Out" OFFSET = OUT 10 ns AFTER "clk_dac";
         ]
+
 
 class Platform(XilinxISEPlatform):
     def __init__(self):

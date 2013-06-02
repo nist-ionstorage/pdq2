@@ -3,7 +3,7 @@ from migen.genlib.fsm import FSM
 from migen.genlib.record import Record
 from migen.flow.actor import *
 from migen.flow.network import *
-from migen.actorlib import spi, sim, structuring
+from migen.actorlib import sim
 
 
 frame_layout = [
@@ -19,74 +19,75 @@ frame_layout = [
 class DacReader(Module):
     def __init__(self, pads):
         self.specials.mem = Memory(width=16, depth=6144)
-        #mem_write = self.mem.get_port(write_capable=True,
-        #        we_granularity=8)
-        #self.specials += mem_write
-        mem_read = self.mem.get_port()
-        self.specials += mem_read
+        read = self.mem.get_port()
+        self.specials += read
         self.order = Signal(2)
         self.branch = Signal(3)
         self.branch_addr = Array(Signal(13) for _ in range(8))
 
-        self.frame = Source(frame_layout)
-        self.busy = Signal()
+        self.frame_out = Source(frame_layout)
+        self.busy = ~self.frame_out.stb
 
-        fsm_states = "INIT DT V0 V1A V1B V2A V2B V2C V3A V3B V3C IDLE".split()
-        fsm_read = FSM(*fsm_states)
-        self.submodules += fsm_read
+        states = "INIT DT V0 V1A V1B V2A V2B V2C V3A V3B V3C IDLE".split()
+        fsm = FSM(*states)
+        self.submodules += fsm
 
-        frame = self.frame.payload
-        fsm_read.act(fsm_read.INIT,
-                mem_read.adr.eq(self.branch_addr[self.branch]),
-                self.frame.stb.eq(0),
-                self.busy.eq(1))
-        fsm_read.act(fsm_read.DT, frame.wait.eq(mem_read.dat_r[15]))
-        fsm_read.act(fsm_read.DT, frame.dt.eq(mem_read.dat_r[:15]))
-        fsm_read.act(fsm_read.V0, frame.v0[32:].eq(mem_read.dat_r))
-        fsm_read.act(fsm_read.V1A, frame.v1[32:].eq(mem_read.dat_r))
-        fsm_read.act(fsm_read.V1B, frame.v1[16:32].eq(mem_read.dat_r))
-        fsm_read.act(fsm_read.V2A, frame.v2[32:].eq(mem_read.dat_r))
-        fsm_read.act(fsm_read.V2B, frame.v2[16:32].eq(mem_read.dat_r))
-        fsm_read.act(fsm_read.V2C, frame.v2[:16].eq(mem_read.dat_r))
-        fsm_read.act(fsm_read.V3A, frame.v3[32:].eq(mem_read.dat_r))
-        fsm_read.act(fsm_read.V3B, frame.v3[16:32].eq(mem_read.dat_r))
-        fsm_read.act(fsm_read.V3C, frame.v3[:16].eq(mem_read.dat_r))
+        fp = self.frame_out.payload
+        fsm.act(fsm.INIT,
+                read.adr.eq(self.branch_addr[self.branch]),
+                self.frame_out.stb.eq(0))
+        fsm.act(fsm.DT, fp.wait.eq(read.dat_r[15]))
+        fsm.act(fsm.DT, fp.dt.eq(read.dat_r[:15]))
+        fsm.act(fsm.V0, fp.v0[32:].eq(read.dat_r))
+        fsm.act(fsm.V1A, fp.v1[32:].eq(read.dat_r))
+        fsm.act(fsm.V1B, fp.v1[16:32].eq(read.dat_r))
+        fsm.act(fsm.V2A, fp.v2[32:].eq(read.dat_r))
+        fsm.act(fsm.V2B, fp.v2[16:32].eq(read.dat_r))
+        fsm.act(fsm.V2C, fp.v2[:16].eq(read.dat_r))
+        fsm.act(fsm.V3A, fp.v3[32:].eq(read.dat_r))
+        fsm.act(fsm.V3B, fp.v3[16:32].eq(read.dat_r))
+        fsm.act(fsm.V3C, fp.v3[:16].eq(read.dat_r))
         for state in "DT V0 V1A V1B V2A V2B V2C V3A V3B V3C".split():
-            fsm_read.act(getattr(fsm_read, state),
-                mem_read.adr.eq(mem_read.adr + 1))
-        fsm_read.act(fsm_read.V0, If(self.order <= 0,
-                frame.v1.eq(0),
-                frame.v2.eq(0),
-                frame.v3.eq(0),
-                fsm_read.next_state(fsm_read.IDLE)))
-        fsm_read.act(fsm_read.V1B, If(self.order <= 1,
-                frame.v2.eq(0),
-                frame.v3.eq(0),
-                fsm_read.next_state(fsm_read.IDLE)))
-        fsm_read.act(fsm_read.V2C, If(self.order <= 2,
-                frame.v3.eq(0),
-                fsm_read.next_state(fsm_read.IDLE)))
-        fsm_read.act(fsm_read.IDLE,
-                self.frame.stb.eq(1),
-                self.busy.eq(0),
-                If(self.frame.ack,
-                    fsm_read.next_state(fsm_read.INIT),
+            fsm.act(getattr(fsm, state),
+                read.adr.eq(read.adr + 1))
+        fsm.act(fsm.V0, If(self.order <= 0,
+                fp.v1.eq(0),
+                fp.v2.eq(0),
+                fp.v3.eq(0),
+                fsm.next_state(fsm.IDLE)))
+        fsm.act(fsm.V1B, If(self.order <= 1,
+                fp.v2.eq(0),
+                fp.v3.eq(0),
+                fsm.next_state(fsm.IDLE)))
+        fsm.act(fsm.V2C, If(self.order <= 2,
+                fp.v3.eq(0),
+                fsm.next_state(fsm.IDLE)))
+        fsm.act(fsm.IDLE,
+                self.frame_out.stb.eq(1),
+                If(self.frame_out.ack,
+                    fsm.next_state(fsm.INIT),
                 ).Else(
-                    fsm_read.next_state(fsm_read.IDLE),
+                    fsm.next_state(fsm.IDLE),
                 ))
 
 
 class DacOut(Module):
     def __init__(self, pads):
         self.frame_in = Sink(frame_layout)
-        self.busy = Signal()
+        self.busy = ~self.frame_in.ack
+
+        self.trigger = Signal()
 
         t = Signal(15)
         frame = Record(frame_layout)
 
         self.sync += [
-                If(t < frame.dt,
+                If(t == 0,
                     self.frame_in.ack.eq(0),
+                    If(self.trigger,
+                        t.eq(t + 1),
+                    ),
+                ).Elif(t < frame.dt,
                     t.eq(t + 1),
                 ).Elif((t >= frame.dt) & self.frame_in.stb,
                     frame.raw_bits().eq(self.frame_in.raw_bits()),
@@ -124,8 +125,8 @@ class DacOut(Module):
 
 class Dac(Module):
     def __init__(self, pads):
-        reader = DacReader(pads)
-        out = DacOut(pads)
         g = DataFlowGraph()
-        g.add_connection(reader, out)
+        self.reader = DacReader(pads)
+        self.out = DacOut(pads)
+        g.add_connection(self.reader, self.out)
         self.submodules += CompositeActor(g)
