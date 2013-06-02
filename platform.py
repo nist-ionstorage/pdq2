@@ -4,21 +4,21 @@ from mibuild.xilinx_ise import XilinxISEPlatform, CRG_SE
 _io = [
         ("clk", 0, Pins("P80"), IOStandard("LVCMOS25")),
         #    Misc("TMN_NET = clk")),
-        ("reset", 0, Pins("P96"), IOStandard("LVCMOS25")),
 
         ("comm", 0,
             Subsignal("data", Pins(*
                 "P101 P91 P76 P72 P71 P60 P58 P57".split())),
-            Subsignal("rd", Pins("P97")), # 
-            Subsignal("rxf", Pins("P54")),
+            Subsignal("rdl", Pins("P97")), # 
+            Subsignal("rxfl", Pins("P54")),
             # NET "clk_comm1" TNM_NET = clk_comm1;
             Subsignal("adr", Pins(*"P32 P6 P14 P43".split())),
             # triggered_writing
-            Subsignal("write_in", Pins("P159")), #GO_1
+            Subsignal("rd_in", Pins("P159")), #GO_1
             # write_trigger
-            Subsignal("write_out", Pins("P102")), #G1
+            Subsignal("rd_out", Pins("P102")), #G1
             Subsignal("go2_in", Pins("P169")), #GO_2 in
             Subsignal("go2_out", Pins("P100")), #G2 out
+            Subsignal("reset", Pins("P96")), # dac_reset
             IOStandard("LVCMOS25")),
 
         ("ctrl", 0,
@@ -79,4 +79,4 @@ _io = [
 class Platform(XilinxISEPlatform):
     def __init__(self):
         XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,
-                lambda p: CRG_SE(p, "clk", "reset", 20.0))
+                lambda p: CRG_SE(p, "clk", None, 20.0))

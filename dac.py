@@ -116,8 +116,6 @@ class DacReader(Module):
                 If(self.frame_out.ack,
                     self.frame_out.stb.eq(0),
                     fsm.next_state(fsm.INIT),
-                ).Else(
-                    fsm.next_state(fsm.IDLE),
                 ))
 
 
@@ -141,13 +139,13 @@ class DacOut(Module):
                 ).Elif(self.frame_in.stb &
                         (self.trigger | ~self.frame_in.payload.wait),
                     self.frame_in.ack.eq(1),
-                    frame.raw_bits().eq(self.frame_in.raw_bits()),
+                    frame.raw_bits().eq(self.frame_in.payload.raw_bits()),
                     t.eq(0),
                 ),
                 ]
 
         out = Signal(16)
-        out.eq(frame.v0[-16:])
+        self.comb += out.eq(frame.v0[-16:])
        
         clk = ClockSignal()
         self.comb += [
