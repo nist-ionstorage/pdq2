@@ -83,7 +83,7 @@ class Comm(Module):
         self.reader = Ft245r_rx(pads)
         self.parser = Parser(pads, *dacs)
         g = DataFlowGraph()
-        g.add_connection(self.reader, self.ventilator)
+        g.add_connection(self.reader, self.parser)
         self.submodules += CompositeActor(g)
         
         self.comb += pads.reset.eq(self.reader.reset_out)
