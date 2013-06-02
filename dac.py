@@ -44,6 +44,7 @@ class DacReader(Module):
         self.submodules += fsm
 
         fp = self.frame_out.payload
+
         fsm.act(fsm.INIT,
                 If((read.adr < self.branch_start) | 
                    (read.adr >= self.branch_end),
@@ -67,12 +68,12 @@ class DacReader(Module):
         fsm.act(fsm.V3A, fp.v3[32:].eq(read.dat_r[:16]))
         fsm.act(fsm.V3B, fp.v3[16:32].eq(read.dat_r[:16]))
         fsm.act(fsm.V3C, fp.v3[:16].eq(read.dat_r[:16]))
+
         for state in "V0 DT V1A V1B V2A V2B V2C V3A V3B V3C".split():
             fsm.act(getattr(fsm, state),
                 read.adr.eq(read.adr + 1))
-        fsm.act(fsm.INIT,
-                fsm.next_state(fsm.V0),
-                )
+
+        fsm.act(fsm.INIT, fsm.next_state(fsm.V0))
         fsm.act(fsm.V0,
                 If(self.order == 0,
                     fp.wait.eq(0),
@@ -85,9 +86,8 @@ class DacReader(Module):
                 ).Else(
                     fsm.next_state(fsm.DT),
                 ))
-        fsm.act(fsm.DT,
-                fsm.next_state(fsm.V1A),
-                )
+        fsm.act(fsm.DT, fsm.next_state(fsm.V1A))
+        fsm.act(fsm.V1A, fsm.next_state(fsm.V1B))
         fsm.act(fsm.V1B,
                 If(self.order == 1,
                     fp.v2.eq(0),
@@ -97,6 +97,8 @@ class DacReader(Module):
                 ).Else(
                     fsm.next_state(fsm.V2A),
                 ))
+        fsm.act(fsm.V2A, fsm.next_state(fsm.V2B))
+        fsm.act(fsm.V2B, fsm.next_state(fsm.V2C))
         fsm.act(fsm.V2C,
                 If(self.order == 2,
                     fp.v3.eq(0),
@@ -105,6 +107,8 @@ class DacReader(Module):
                 ).Else(
                     fsm.next_state(fsm.V3A),
                 ))
+        fsm.act(fsm.V3A, fsm.next_state(fsm.V3B))
+        fsm.act(fsm.V3B, fsm.next_state(fsm.V3C))
         fsm.act(fsm.V3C,
                 self.frame_out.stb.eq(1),
                 fsm.next_state(fsm.IDLE))
