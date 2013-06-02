@@ -10,19 +10,14 @@ _io = [
             # NET "clk_comm1" TNM_NET = clk_comm1;
             ),
 
-        ("addr", 0, Pins("P32")),
-        ("addr", 1, Pins("P6")),
-        ("addr", 2, Pins("P14")),
-        ("addr", 3, Pins("P43")),
+        ("addr", 0, Pins("P32 P6 P14 P43")),
 
         ("writing", 0, Pins("P159")),
         ("wave", 0, Pins("P110")),
         ("write", 0, Pins("P102")),
 
         ("aux", 0, Pins("P99")),
-        ("branch", 0, Pins("P118")),
-        ("branch", 1, Pins("P124")),
-        ("branch", 2, Pins("P98")),
+        ("branch", 0, Pins("P118 P124 P98")),
 
         ("clk_dac", 0, Pins("P80")),
         #    Misc("TMN_NET = clk_dac")),
