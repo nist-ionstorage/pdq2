@@ -37,7 +37,7 @@ _io = [
                 IOStandard("LVDS_25")),
             Subsignal("data_n", Pins(*
                 "P107 P109 P113 P116 P120 P123 P127 P129 "
-                "P125 P135 P138 P140 P145 P147 P151 P153".split()),
+                "P133 P135 P138 P140 P145 P147 P151 P153".split()),
                 IOStandard("LVDS_25")),
             Subsignal("data_clk_p", Pins("P93"), IOStandard("LVDS_25")),
             Subsignal("data_clk_n", Pins("P94"), IOStandard("LVDS_25")),
