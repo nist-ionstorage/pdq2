@@ -124,7 +124,8 @@ class DacOut(Module):
                 ),
                 ]
 
-        out = frame.v0[-16:]
+        out = Signal(16)
+        out.eq(frame.v0[-16:])
        
         clk = ClockSignal()
         self.comb += [
