@@ -2,9 +2,9 @@ from mibuild.generic_platform import *
 from mibuild.xilinx_ise import XilinxISEPlatform, CRG_SE
 
 _io = [
-        ("clk", 0, Pins("P80"), IOStandard("LVCMOS33")),
+        ("clk", 0, Pins("P80"), IOStandard("LVCMOS25")),
         #    Misc("TMN_NET = clk")),
-        ("reset", 0, Pins("P96"), IOStandard("LVCMOS33")),
+        ("reset", 0, Pins("P96"), IOStandard("LVCMOS25")),
 
         ("comm", 0,
             Subsignal("data", Pins(*
@@ -19,33 +19,33 @@ _io = [
             Subsignal("write_out", Pins("P102")), #G1
             Subsignal("go2_in", Pins("P169")), #GO_2 in
             Subsignal("go2_out", Pins("P100")), #G2 out
-            IOStandard("LVCMOS33")),
+            IOStandard("LVCMOS25")),
 
         ("ctrl", 0,
             Subsignal("trigger", Pins("P110")), #wave_trigger F1 
             Subsignal("branch", Pins(*"P118 P124 P98".split())), #F2 F3 F4
             Subsignal("aux", Pins("P99")), #F5 out
-            IOStandard("LVCMOS33")
+            IOStandard("LVCMOS25")
             ),
 
         ("dac", 0,
-            Subsignal("clk_p", Pins("P89"), IOStandard("LVCMOS33")),
-            Subsignal("clk_n", Pins("P90"), IOStandard("LVCMOS33")),
+            Subsignal("clk_p", Pins("P89"), IOStandard("LVCMOS25")),
+            Subsignal("clk_n", Pins("P90"), IOStandard("LVCMOS25")),
             Subsignal("data_p", Pins(*
                 "P106 P108 P112 P115 P119 P122 P126 P128 "
                 "P132 P134 P137 P139 P144 P146 P150 P152".split()),
                 IOStandard("LVDS_25")),
             Subsignal("data_n", Pins(*
                 "P107 P109 P113 P116 P120 P123 P127 P129 "
-                "P133 P135 P138 P140 P145 P147 P151 P153".split()),
+                "P125 P135 P138 P140 P145 P147 P151 P153".split()),
                 IOStandard("LVDS_25")),
             Subsignal("data_clk_p", Pins("P93"), IOStandard("LVDS_25")),
             Subsignal("data_clk_n", Pins("P94"), IOStandard("LVDS_25")),
             ),
 
         ("dac", 1,
-            Subsignal("clk_p", Pins("P68"), IOStandard("LVCMOS33")),
-            Subsignal("clk_n", Pins("P69"), IOStandard("LVCMOS33")),
+            Subsignal("clk_p", Pins("P68"), IOStandard("LVCMOS25")),
+            Subsignal("clk_n", Pins("P69"), IOStandard("LVCMOS25")),
             Subsignal("data_p", Pins(*
                 "P160 P162 P164 P167 P171 P82 P177 P180 "
                 "P74 P185 P189 P192 P196 P199 P202 P205".split()),
@@ -59,11 +59,11 @@ _io = [
             ),
 
         ("dac", 2,
-            Subsignal("clk_p", Pins("P62"), IOStandard("LVCMOS33")),
-            Subsignal("clk_n", Pins("P63"), IOStandard("LVCMOS33")),
+            Subsignal("clk_p", Pins("P62"), IOStandard("LVCMOS25")),
+            Subsignal("clk_n", Pins("P63"), IOStandard("LVCMOS25")),
             Subsignal("data_p", Pins(*
                 "P2 P4 P8 P11 P15 P18 P22 P24 "
-                "P28 P30 P33 P35 P39 P41 P47 P49".split()),
+                "P28 P30 P25 P35 P39 P41 P47 P49".split()),
                 IOStandard("LVDS_25")),
             Subsignal("data_n", Pins(*
                 "P3 P5 P9 P12 P16 P19 P23 P25 "
