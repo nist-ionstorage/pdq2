@@ -49,7 +49,6 @@ class DacReader(Module):
                    (read.adr >= self.branch_end),
                     read.adr.eq(self.branch_start),
                 ),
-                fsm.next_state(fsm.V0),
                 )
         fsm.act(fsm.V0, fp.v0[32:].eq(read.dat_r[:16]))
         fsm.act(fsm.DT,
@@ -71,6 +70,9 @@ class DacReader(Module):
         for state in "V0 DT V1A V1B V2A V2B V2C V3A V3B V3C".split():
             fsm.act(getattr(fsm, state),
                 read.adr.eq(read.adr + 1))
+        fsm.act(fsm.INIT,
+                fsm.next_state(fsm.V0),
+                )
         fsm.act(fsm.V0,
                 If(self.order == 0,
                     fp.wait.eq(0),
@@ -81,8 +83,11 @@ class DacReader(Module):
                     self.frame_out.stb.eq(1),
                     fsm.next_state(fsm.IDLE),
                 ).Else(
-                    fsm.next_state(fsm.V1A),
+                    fsm.next_state(fsm.DT),
                 ))
+        fsm.act(fsm.DT,
+                fsm.next_state(fsm.V1A),
+                )
         fsm.act(fsm.V1B,
                 If(self.order == 1,
                     fp.v2.eq(0),
@@ -90,7 +95,7 @@ class DacReader(Module):
                     self.frame_out.stb.eq(1),
                     fsm.next_state(fsm.IDLE),
                 ).Else(
-                    fsm.next_state(fsm.V1A),
+                    fsm.next_state(fsm.V2A),
                 ))
         fsm.act(fsm.V2C,
                 If(self.order == 2,
