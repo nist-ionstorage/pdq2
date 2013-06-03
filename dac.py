@@ -22,6 +22,8 @@ class DacReader(Module):
         self.specials.mem = Memory(width=mem_data_width, depth=mem_depth)
         read = self.mem.get_port()
         self.specials += read
+        adr = Signal()
+        self.sync += read.adr.eq(adr)
         self.order = Signal(2)
         self.branch = Signal(3)
         self.branch_adrs = Array(Signal(mem_adr_width) for _ in range(8))
@@ -46,14 +48,14 @@ class DacReader(Module):
         read_states = states[1:] + ["INIT"]
         for i, state in enumerate(read_states[:-1]):
             fsm.act(getattr(fsm, state),
-                read.adr.eq(read.adr + 1),
+                adr.eq(read.adr + 1),
                 fsm.next_state(getattr(fsm, read_states[i+1])),
                 )
         
         fsm.act(fsm.INIT,
                 If((read.adr < self.branch_start) | 
                    (read.adr >= self.branch_end),
-                    read.adr.eq(self.branch_start),
+                    adr.eq(self.branch_start),
                 ),
                 self.frame_out.stb.eq(0),
                 fsm.next_state(fsm.V0),
