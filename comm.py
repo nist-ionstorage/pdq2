@@ -74,13 +74,10 @@ class Parser(Module):
     def __init__(self, pads, *dacs):
         self.data_in = Sink(data)
         self.busy = ~self.data_in.ack
-        orders = Array(dac.reader.order for dac in dacs)
-        freeruns = Array(dac.out.freerun for dac in dacs)
-        branch_adrs = Array(dac.reader.branch_adr for dac in dacs)
         mems = [dac.reader.mem.get_port(write_capable=True) for dac in dacs]
         self.specials += mems
 
-        states = "CMD ARG1 ARG2".split()
+        states = "CMD ARG1 ARG2 PARSE".split()
         fsm = FSM(*states)
         self.submodules += fsm
 
@@ -97,14 +94,18 @@ class Parser(Module):
         length = Signal(13)
         dac_adr = Signal(2)
         mem_adr = Signal(13)
-        mem_dat = Signal(16)
-        self.comb += [mem.adr.eq(mem_adr) for mem in mems]
-        self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
-        wes = Array(mem.we for mem in mems)
+        #mem_dat = Signal(16)
+        #self.comb += [mem.adr.eq(mem_adr) for mem in mems]
+        #self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
+        mem_adr, mem_dat, we = (Array(_)[dac_adr] for _ in zip(*[
+            (mem.adr, mem.dat_w, mem.we) for mem in mems]))
+        order, freerun, branch_adrs = (Array(_)[dac_adr] for _ in zip(*[
+            (dac.reader.order, dac.out.freerun, dac.reader.branch_adrs)
+            for dac in dacs]))
 
         pd = self.data_in.payload.data 
 
-        arg_actions = {
+        actions = {
                 cmds.index("DEV_ADR"): [
                     listen.eq(~arg[8:12] == pads.adr),
                     # officially there are three separate DACX commands.
@@ -114,18 +115,16 @@ class Parser(Module):
                     ],
                 cmds.index("DATA_LENGTH"): [length.eq(arg[:13])],
                 cmds.index("MEM_ADR"): [mem_adr.eq(arg[:13])],
-                cmds.index("MEM_LENGTH"): [branch_adrs[dac_adr][7].eq(arg[:13])],
-                cmds.index("MODE"): [
-                    orders[dac_adr].eq(arg[8:10]),
-                    freeruns[dac_adr].eq(~arg[0]),
-                    ],
+                cmds.index("MEM_LENGTH"): [branch_adrs[7].eq(arg[:13])],
+                cmds.index("MODE"): [order.eq(arg[8:10]), freerun.eq(~arg[0])],
                 cmds.index("SINGLE"): [
                     mem_dat.eq(arg),
-                    wes[dac_adr].eq(1),
+                    we.eq(1),
+                    mem_adr.eq(mem_adr + 1),
                     ],
                 cmds.index("BURST"): [
                     mem_dat.eq(arg),
-                    wes[dac_adr].eq(1),
+                    we.eq(1),
                     mem_adr.eq(mem_adr + 1),
                     If(length,
                         length.eq(length - 1),
@@ -134,8 +133,8 @@ class Parser(Module):
                     ],
                 }
         for i in range(7):
-            arg_actions[cmds.index("BRANCH{}".format(i))] = [
-                    branch_adrs[dac_adr][i].eq(arg[:13]),
+            actions[cmds.index("BRANCH{}".format(i))] = [
+                    branch_adrs[i].eq(arg[:13]),
                     ]
 
         fsm.act(fsm.CMD,
@@ -144,25 +143,26 @@ class Parser(Module):
                     cmd.eq(pd),
                     self.data_in.ack.eq(0),
                     fsm.next_state(fsm.ARG1),
-                    wes[dac_adr].eq(0),
                 ))
         fsm.act(fsm.ARG1,
                 self.data_in.ack.eq(1),
                 If(self.data_in.stb,
-                    self.data_in.ack.eq(0),
                     arg[8:].eq(pd),
+                    self.data_in.ack.eq(0),
                     fsm.next_state(fsm.ARG2),
-                    wes[dac_adr].eq(0),
+                    we.eq(0),
                 ))
         fsm.act(fsm.ARG2,
                 self.data_in.ack.eq(1),
                 If(self.data_in.stb,
                     arg[:8].eq(pd),
                     self.data_in.ack.eq(0),
-                    fsm.next_state(fsm.CMD),
-                    If(listen | cmd == cmds.index("DEV_ADR"),
-                        Case(cmd, arg_actions),
-                    ),
+                    fsm.next_state(fsm.PARSE),
+                ))
+        fsm.act(fsm.PARSE,
+                fsm.next_state(fsm.CMD),
+                If(listen | cmd == cmds.index("DEV_ADR"),
+                    Case(cmd, actions),
                 ))
 
 

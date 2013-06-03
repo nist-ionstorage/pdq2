@@ -24,16 +24,16 @@ class DacReader(Module):
         self.specials += read
         self.order = Signal(2)
         self.branch = Signal(3)
-        self.branch_adr = Array(Signal(mem_adr_width) for _ in range(8))
+        self.branch_adrs = Array(Signal(mem_adr_width) for _ in range(8))
         self.branch_start = Signal(mem_adr_width)
         self.branch_end = Signal(mem_adr_width)
         self.sync += [
                 If(self.branch == 0,
                     self.branch_start.eq(0),
                 ).Else(
-                    self.branch_start.eq(self.branch_adr[self.branch-1]),
+                    self.branch_start.eq(self.branch_adrs[self.branch-1]),
                 ),
-                self.branch_end.eq(self.branch_adr[self.branch]),
+                self.branch_end.eq(self.branch_adrs[self.branch]),
                 ]
 
         self.frame_out = Source(frame_layout)
