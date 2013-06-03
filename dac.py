@@ -141,8 +141,8 @@ class DacOut(Module):
                     t1.eq(t + 1),
                 ).Elif(self.frame_in.stb &
                         (self.freerun | self.trigger | ~frame.wait),
-                    self.frame_in.ack.eq(1),
                     frame.raw_bits().eq(self.frame_in.payload.raw_bits()),
+                    self.frame_in.ack.eq(1),
                     t1.eq(0),
                 ),
                 ]

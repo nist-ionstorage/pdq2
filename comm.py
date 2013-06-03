@@ -95,6 +95,8 @@ class Parser(Module):
         length1 = Signal(13)
         self.sync += length.eq(length1)
         dac_adr = Signal(2)
+        dac_adr1 = Signal(2)
+        self.sync += dac_adr.eq(dac_adr1)
         adr = Signal(13)
         mem_adr = Signal(13)
         self.sync += mem_adr.eq(adr)
@@ -116,7 +118,7 @@ class Parser(Module):
                     # officially there are three separate DACX commands.
                     # here we trust that DEV_ADDR and the DACX command
                     # will come in pairs.
-                    dac_adr.eq(arg[:2]),
+                    dac_adr1.eq(arg[:2]),
                     ],
                 cmds.index("DATA_LENGTH"): [length1.eq(arg[:13])],
                 cmds.index("MEM_ADR"): [adr.eq(arg[:13])],
