@@ -50,6 +50,7 @@ except ImportError:
     try:
         import ftd2xx
         Ftdi = D2xxFtdi
+        raise ImportError
     except ImportError:
         Ftdi = FileFtdi
 
