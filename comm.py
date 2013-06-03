@@ -176,3 +176,4 @@ class Comm(Module):
         self.submodules += CompositeActor(g)
         
         self.comb += pads.reset.eq(self.reader.reset_out)
+        self.comb += pads.go2_out.eq(0)
