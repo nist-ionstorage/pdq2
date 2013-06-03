@@ -80,11 +80,30 @@ class Parser(Module):
         #self.submodules += fsm
         state = Signal(2)
 
-        cmds = ("DEV_ADR DATA_LENGTH MEM_ADR SINGLE BURST _5 MEM_LENGTH "
-            "_7 MODE _9 DAC0 DAC1 DAC2 _13 _14 _15 _16 _17 _18 _19 "
-            "BRANCH0 BRANCH1 BRANCH2 BRANCH3 BRANCH4 BRANCH5 BRANCH6").split()
-        assert len(cmds) == 27, len(cmds)
-        code_to_cmd = dict((code, cmd) for code, cmd in enumerate(cmds))
+        cmd_codes = {
+            "DEV_ADR": 0x00,
+            "DATA_LENGTH": 0x01,
+            "MEM_ADR": 0x02,
+            "SINGLE": 0x03,
+            "BURST": 0x04,
+            "MEM_LENGTH": 0x06,
+            "MODE": 0x08,
+            "DAC0": 0x10,
+            "DAC0": 0x11,
+            "DAC0": 0x12,
+            "BRANCH0": 0x20,
+            "BRANCH1": 0x21,
+            "BRANCH2": 0x22,
+            "BRANCH3": 0x23,
+            "BRANCH4": 0x24,
+            "BRANCH5": 0x25,
+            "BRANCH6": 0x26,
+        }
+        class Dummy(object):
+            pass
+        cmds = Dummy()
+        for k, v in cmd_codes.items():
+            setattr(cmds, k, v)
 
         cmd = Signal(8)
         arg = Signal(16)
@@ -93,18 +112,11 @@ class Parser(Module):
         
         dev_adr = Signal(4)
         self.sync += listen.eq((dev_adr == self.adr)
-                | (cmd == cmds.index("DEV_ADR")))
+                | (cmd == cmds.DEV_ADR))
         length = Signal(13)
-        length1 = Signal(13)
-        self.sync += length.eq(length1)
         dac_adr = Signal(2)
-        dac_adr1 = Signal(2)
-        self.sync += dac_adr.eq(dac_adr1)
-        adr = Signal(13)
-        adr_inc = Signal()
         mem_adr = Signal(13)
-        self.sync += mem_adr.eq(adr)
-        mem_dat = Signal(18)
+        mem_dat = Signal(16)
         self.comb += [mem.adr.eq(mem_adr) for mem in mems]
         self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
         we = Array(mem.we for mem in mems)[dac_adr]
@@ -114,74 +126,74 @@ class Parser(Module):
             (dac.reader.order, dac.out.freerun, dac.reader.branch_adrs)
             for dac in dacs]))
 
-        pd = self.data_in.payload.data 
-
         actions = {
-                cmds.index("DEV_ADR"): [
-                    dev_adr.eq(~arg[8:12]),
+                cmds.DEV_ADR: [
+                    dev_adr.eq(arg[8:12]),
                     # officially there are three separate DACX commands.
                     # here we trust that DEV_ADDR and the DACX command
                     # will come in pairs.
-                    dac_adr1.eq(arg[:2]),
+                    dac_adr.eq(arg[:2]),
                     ],
-                cmds.index("DATA_LENGTH"): [length1.eq(arg[:13])],
-                cmds.index("MEM_ADR"): [adr.eq(arg[:13])],
-                cmds.index("MEM_LENGTH"): [branch_adrs[7].eq(arg[:13])],
-                cmds.index("MODE"): [order.eq(arg[8:10]), freerun.eq(~arg[0])],
-                cmds.index("SINGLE"): [
+                cmds.DATA_LENGTH: [length.eq(arg[:13])],
+                cmds.MEM_ADR: [mem_adr.eq(arg[:13])],
+                cmds.MEM_LENGTH: [branch_adrs[7].eq(arg[:13])],
+                cmds.MODE: [order.eq(arg[8:10]), freerun.eq(~arg[0])],
+                cmds.SINGLE: [
                     mem_dat[:16].eq(arg),
                     we.eq(1),
-                    adr_inc.eq(1),
+                    mem_adr.eq(mem_adr + 1),
                     ],
-                cmds.index("BURST"): [
+                cmds.BURST: [
                     mem_dat[:16].eq(arg),
                     we.eq(1),
-                    adr_inc.eq(1),
+                    mem_adr.eq(mem_adr + 1),
                     If(length,
-                        length1.eq(length - 1),
+                        length.eq(length - 1),
                         state.eq(states.index("ARG1")),
                     ),
                     ],
                 }
         for i in range(7):
-            actions[cmds.index("BRANCH{}".format(i))] = [
+            actions[cmd_codes["BRANCH{}".format(i)]] = [
                     branch_adrs[i].eq(arg[:13]),
                     ]
 
-        read_actions = {}
-        for i, cstate in enumerate(states[:-1]):
-            read_actions[i] = [
-                self.data_in.ack.eq(0),
-                If(self.data_in.stb,
-                    self.data_in.ack.eq(1),
-                    state.eq(i+1),
-                  ),
-                ]
+        pd = self.data_in.payload.data 
 
-        read_actions[states.index("CMD")].extend((
-                adr_inc.eq(0),
-                If(self.data_in.stb,
-                    cmd.eq(pd),
-                ),
-                ))
-        read_actions[states.index("ARG1")].extend((
+        read_actions = {
+            states.index("CMD"): [
                 we.eq(0),
-                adr.eq(mem_adr + adr_inc),
-                If(self.data_in.stb,
-                    arg[8:].eq(pd),
+                self.data_in.ack.eq(1),
+                If(self.data_in.stb & self.data_in.ack,
+                    self.data_in.ack.eq(0),
+                    cmd.eq(pd),
+                    state.eq(states.index("ARG1")),
                 ),
-                ))
-        read_actions[states.index("ARG2")].extend((
-                If(self.data_in.stb,
+                ],
+            states.index("ARG1"): [
+                we.eq(0),
+                self.data_in.ack.eq(1),
+                If(self.data_in.stb & self.data_in.ack,
+                    self.data_in.ack.eq(0),
                     arg[:8].eq(pd),
+                    state.eq(states.index("ARG2")),
                 ),
-                ))
-        read_actions[states.index("PARSE")] = (
+                ],
+            states.index("ARG2"): [
+                self.data_in.ack.eq(1),
+                If(self.data_in.stb & self.data_in.ack,
+                    self.data_in.ack.eq(0),
+                    arg[8:].eq(pd),
+                    state.eq(states.index("PARSE")),
+                ),
+                ],
+            states.index("PARSE"): [
                 state.eq(states.index("CMD")),
                 If(listen,
                     Case(cmd, actions),
                 ),
-                )
+                ],
+        }
         self.sync += Case(state, read_actions)
 
 
@@ -215,4 +227,4 @@ class SimComm(Module):
         self.parser = Parser(*dacs)
         g = DataFlowGraph()
         g.add_connection(self.reader, self.parser)
-        self.submodules += CompositeActor(g)
+        self.submodules += CompositeActor(g) 

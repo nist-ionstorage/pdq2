@@ -53,12 +53,14 @@ class TB(Module):
         self.pads = Record(tb_pads)
         self.submodules.comm = SimComm(mem, *dacs)
         self.submodules.ctrl = Ctrl(self.pads, *dacs)
+        self.comb += self.comm.parser.adr.eq(self.pads.adr)
         self.outputs = []
 
     def do_simulation(self, s):
-        self.outputs.append(s.rd(self.dac0.out.out))
         if s.cycle_counter == 0:
-            s.wr(self.pads.branch, 0)
+            s.wr(self.pads.branch, 1)
+            s.wr(self.comm.parser.adr, 1)
+        self.outputs.append(s.rd(self.dac1.out.out))
 
 
 def main():
@@ -78,7 +80,7 @@ def main():
     t = np.arange(n)/50e6
     v = np.array(tb.outputs, np.uint16).view(np.int16)*10./(1<<16)
     plt.plot(t, v)
-    plt.show()
+    #plt.show()
 
 
 if __name__ == "__main__":
