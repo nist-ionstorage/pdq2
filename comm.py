@@ -91,7 +91,6 @@ class Parser(Module):
                 | (cmd == cmds.index("DEV_ADR")))
         length = Signal(13)
         dac_adr = Signal(2)
-        adr = Signal(13)
         mem_adr = Signal(13)
         mem_dat = Signal(16)
         self.comb += [mem.adr.eq(mem_adr) for mem in mems]
@@ -114,7 +113,7 @@ class Parser(Module):
                     dac_adr.eq(arg[:2]),
                     ],
                 cmds.index("DATA_LENGTH"): [length.eq(arg[:13])],
-                cmds.index("MEM_ADR"): [adr.eq(arg[:13])],
+                cmds.index("MEM_ADR"): [mem_adr.eq(arg[:13])],
                 cmds.index("MEM_LENGTH"): [branch_adrs[7].eq(arg[:13])],
                 cmds.index("MODE"): [order.eq(arg[8:10]), freerun.eq(~arg[0])],
                 cmds.index("SINGLE"): [
@@ -152,13 +151,12 @@ class Parser(Module):
         fsm.act(fsm.ARG1,
                 If(we,
                     we.eq(0),
-                    adr.eq(adr + 1),
+                    mem_adr.eq(mem_adr + 1),
                 ),
                 If(self.data_in.stb,
                     arg[8:].eq(pd),
                 ))
         fsm.act(fsm.ARG2,
-                mem_adr.eq(adr),
                 If(self.data_in.stb,
                     arg[:8].eq(pd),
                 ))
