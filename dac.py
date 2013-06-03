@@ -55,11 +55,9 @@ class DacReader(Module):
                    (read.adr >= self.branch_end),
                     read.adr.eq(self.branch_start),
                 ),
-                If(~self.frame_out.stb |
-                   (self.frame_out.stb & self.frame_out.ack),
-                    self.frame_out.stb.eq(0),
-                    fsm.next_state(fsm.V0),
-                ))
+                self.frame_out.stb.eq(0),
+                fsm.next_state(fsm.V0),
+                )
         
         fp = self.frame_out.payload
         fsm.act(fsm.V0,
@@ -113,7 +111,9 @@ class DacReader(Module):
         fsm.act(fsm.V3C,
                 fp.v3[:16].eq(read.dat_r[:16]),
                 self.frame_out.stb.eq(1),
-                )
+                If(self.frame_out.ack,
+                    fsm.next_state(fsm.INIT),
+                ))
 
 
 class DacOut(Module):
@@ -123,6 +123,8 @@ class DacOut(Module):
 
         self.trigger = Signal()
         t = Signal(15)
+        t1 = Signal(15)
+        self.sync += t.eq(t1)
 
         self.freerun = Signal()
         
@@ -134,12 +136,12 @@ class DacOut(Module):
                     frame.v0.eq(frame.v0 + frame.v1),
                     frame.v1.eq(frame.v1 + frame.v2),
                     frame.v2.eq(frame.v2 + frame.v3),
-                    t.eq(t + 1),
+                    t1.eq(t + 1),
                 ).Elif(self.frame_in.stb &
                         (self.freerun | self.trigger | ~frame.wait),
                     self.frame_in.ack.eq(1),
                     frame.raw_bits().eq(self.frame_in.payload.raw_bits()),
-                    t.eq(0),
+                    t1.eq(0),
                 ),
                 ]
 
