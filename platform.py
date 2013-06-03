@@ -4,6 +4,7 @@ from mibuild.xilinx_ise import XilinxISEPlatform, CRG_SE
 _io = [
         ("clk", 0, Pins("P80"), IOStandard("LVCMOS25")),
         #    Misc("TMN_NET = clk")),
+        ("reset", 0, Pins("P56"), IOStandard("LVCMOS25")), # INIT_B
 
         ("comm", 0,
             Subsignal("data", Pins(*
