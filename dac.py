@@ -126,6 +126,8 @@ class DacOut(Module):
 
         self.trigger = Signal()
         t = Signal(15)
+
+        self.freerun = Signal()
         
         self.busy = t < frame.dt
 
@@ -136,8 +138,8 @@ class DacOut(Module):
                     frame.v2.eq(frame.v2 + frame.v3),
                     t.eq(t + 1),
                     self.frame_in.ack.eq(0),
-                ).Elif(self.frame_in.stb &
-                        (self.trigger | ~self.frame_in.payload.wait),
+                ).Elif(self.frame_in.stb & (self.freerun | self.trigger |
+                        ~self.frame_in.payload.wait),
                     self.frame_in.ack.eq(1),
                     frame.raw_bits().eq(self.frame_in.payload.raw_bits()),
                     t.eq(0),
