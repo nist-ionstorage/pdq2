@@ -2,16 +2,17 @@ from migen.fhdl.std import *
 from migen.genlib.fsm import FSM
 from migen.genlib.record import Record
 from migen.flow.actor import *
+from migen.flow.transactions import *
 from migen.flow.network import *
-from migen.actorlib import spi, sim, structuring
+from migen.actorlib import sim
 
 
-data = [("data", 8)]
+data_layout = [("data", 8)]
 
 
 class Ft245r_rx(Module):
     def __init__(self, pads):
-        self.data_out = Source(data)
+        self.data_out = Source(data_layout)
 
         rxf = Signal()
         rd = Signal()
@@ -68,15 +69,16 @@ class Ft245r_rx(Module):
 
 
 class Parser(Module):
-    def __init__(self, pads, *dacs):
-        self.data_in = Sink(data)
+    def __init__(self, *dacs):
+        self.data_in = Sink(data_layout)
         self.busy = ~self.data_in.ack
         mems = [dac.reader.mem.get_port(write_capable=True) for dac in dacs]
         self.specials += mems
 
         states = "CMD ARG1 ARG2 PARSE".split()
-        fsm = FSM(*states)
-        self.submodules += fsm
+        #fsm = FSM(*states)
+        #self.submodules += fsm
+        state = Signal(2)
 
         cmds = ("DEV_ADR DATA_LENGTH MEM_ADR SINGLE BURST _5 MEM_LENGTH "
             "_7 MODE _9 DAC0 DAC1 DAC2 _13 _14 _15 _16 _17 _18 _19 "
@@ -87,9 +89,10 @@ class Parser(Module):
         cmd = Signal(8)
         arg = Signal(16)
         listen = Signal()
+        self.adr = Signal(4)
         
         dev_adr = Signal(4)
-        self.sync += listen.eq((dev_adr == pads.adr)
+        self.sync += listen.eq((dev_adr == self.adr)
                 | (cmd == cmds.index("DEV_ADR")))
         length = Signal(13)
         length1 = Signal(13)
@@ -136,7 +139,7 @@ class Parser(Module):
                     adr_inc.eq(1),
                     If(length,
                         length1.eq(length - 1),
-                        fsm.next_state(fsm.ARG1),
+                        state.eq(states.index("ARG1")),
                     ),
                     ],
                 }
@@ -145,45 +148,71 @@ class Parser(Module):
                     branch_adrs[i].eq(arg[:13]),
                     ]
 
-        read_states = fsm.CMD, fsm.ARG1, fsm.ARG2, fsm.PARSE
-        for i, state in enumerate(read_states[:-1]):
-            fsm.act(state,
-                self.data_in.ack.eq(1),
+        read_actions = {}
+        for i, cstate in enumerate(states[:-1]):
+            read_actions[i] = [
+                self.data_in.ack.eq(0),
                 If(self.data_in.stb,
-                    self.data_in.ack.eq(0),
-                    fsm.next_state(read_states[i+1]),
+                    self.data_in.ack.eq(1),
+                    state.eq(i+1),
                   ),
-                )
+                ]
 
-        fsm.act(fsm.CMD,
+        read_actions[states.index("CMD")].extend((
                 adr_inc.eq(0),
                 If(self.data_in.stb,
                     cmd.eq(pd),
+                ),
                 ))
-        fsm.act(fsm.ARG1,
+        read_actions[states.index("ARG1")].extend((
                 we.eq(0),
                 adr.eq(mem_adr + adr_inc),
                 If(self.data_in.stb,
                     arg[8:].eq(pd),
+                ),
                 ))
-        fsm.act(fsm.ARG2,
+        read_actions[states.index("ARG2")].extend((
                 If(self.data_in.stb,
                     arg[:8].eq(pd),
+                ),
                 ))
-        fsm.act(fsm.PARSE,
-                fsm.next_state(fsm.CMD),
+        read_actions[states.index("PARSE")] = (
+                state.eq(states.index("CMD")),
                 If(listen,
                     Case(cmd, actions),
-                ))
+                ),
+                )
+        self.sync += Case(state, read_actions)
 
 
 class Comm(Module):
     def __init__(self, pads, *dacs):
         self.reader = Ft245r_rx(pads)
-        self.parser = Parser(pads, *dacs)
+        self.parser = Parser(*dacs)
         g = DataFlowGraph()
         g.add_connection(self.reader, self.parser)
         self.submodules += CompositeActor(g)
         
+        self.comb += self.parser.adr.eq(pads.adr)
         self.comb += pads.reset.eq(self.reader.reset)
         self.comb += pads.go2_out.eq(0)
+
+
+class SimReader(sim.SimActor):
+    def __init__(self, data):
+        self.data_out = Source(data_layout)
+        sim.SimActor.__init__(self, self.data_gen(data))
+
+    def data_gen(self, data):
+        for msg in data:
+            print("gen {}".format(repr(msg)))
+            yield Token("data_out", {"data": msg})
+
+
+class SimComm(Module):
+    def __init__(self, mem, *dacs):
+        self.reader = SimReader(mem)
+        self.parser = Parser(*dacs)
+        g = DataFlowGraph()
+        g.add_connection(self.reader, self.parser)
+        self.submodules += CompositeActor(g)
