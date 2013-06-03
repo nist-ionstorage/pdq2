@@ -34,12 +34,24 @@ class D2xxFtdi(object):
         return written
 
 
+class FileFtdi(object):
+    def __init__(self, serial="unknown"):
+        self.fil = open("pdq_%s_ftdi.bin" % serial, "wb")
+    def write(self, data):
+        written = self.fil.write(data)
+        return len(data)
+
+
 try:
     import pylibftdi
     Ftdi = PyFtdi
+    raise ImportError
 except ImportError:
-    import ftd2xx
-    Ftdi = D2xxFtdi
+    try:
+        import ftd2xx
+        Ftdi = D2xxFtdi
+    except ImportError:
+        Ftdi = FileFtdi
 
 
 class Pdq(object):
