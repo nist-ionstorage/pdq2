@@ -16,56 +16,51 @@ class Ft245r_rx(Module):
         rxf = Signal()
         rd = Signal()
         self.comb += rxf.eq(~pads.rxfl), pads.rdl.eq(~rd)
-        self.comb += self.data_out.payload.data.eq(pads.data)
+        #self.comb += self.data_out.payload.data.eq(pads.data)
 
         self.busy = ~self.data_out.stb
 
-        states = "RESET FILL SETUP HOLD BLOCK".split()
+        states = "RESET FILL SETUP HOLD".split()
         fsm = FSM(*states)
         self.submodules += fsm
         t = Signal(max=1<<20)
-        self.reset_out = Signal()
+        self.reset = Signal()
 
         fsm.act(fsm.RESET,
                 If(t < (1<<20)-1,
                     t.eq(t + 1),
-                    self.reset_out.eq(1),
+                    self.reset.eq(1),
                 ).Else(
                     t.eq(0),
-                    self.reset_out.eq(0),
+                    self.reset.eq(0),
                     fsm.next_state(fsm.FILL),
                 ))
         fsm.act(fsm.FILL,
-                If(pads.rd_in,
-                    rd.eq(1),
-                    fsm.next_state(fsm.SETUP),
-                ).Elif(rxf,
-                    pads.rd_out.eq(1),
+                If(t < 3,
+                    t.eq(t + 1),
+                ).Else(
+                    t.eq(0),
+                    If(pads.rd_in,
+                        fsm.next_state(fsm.SETUP),
+                    ).Elif(rxf,
+                        rd.eq(1),
+                        pads.rd_out.eq(1),
+                    ),
                 ))
         fsm.act(fsm.SETUP,
                 If(t < 3,
                     t.eq(t + 1),
                 ).Else(
                     t.eq(0),
-                    #self.data_out.payload.data.eq(pads.data),
+                    self.data_out.payload.data.eq(pads.data),
                     self.data_out.stb.eq(1),
+                    rd.eq(0),
+                    pads.rd_out.eq(0),
                     fsm.next_state(fsm.HOLD),
                 ))
         fsm.act(fsm.HOLD,
-                If(t < 1,
-                    t.eq(t + 1),
-                ).Elif(self.data_out.ack,
-                    t.eq(0),
-                    rd.eq(0),
-                    pads.rd_out.eq(0),
+                If(self.data_out.ack,
                     self.data_out.stb.eq(0),
-                    fsm.next_state(fsm.BLOCK),
-                ))
-        fsm.act(fsm.BLOCK,
-                If(t < 3,
-                    t.eq(t + 1),
-                ).Else(
-                    t.eq(0),
                     fsm.next_state(fsm.FILL),
                 ))
 
@@ -91,9 +86,11 @@ class Parser(Module):
         arg = Signal(16)
         listen = Signal()
         
+        dev_adr = Signal(4)
+        self.comb += listen.eq(dev_adr == pads.adr)
         length = Signal(13)
         dac_adr = Signal(2)
-        mem_adr = Signal(13)
+        #mem_adr = Signal(13)
         #mem_dat = Signal(16)
         #self.comb += [mem.adr.eq(mem_adr) for mem in mems]
         #self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
@@ -107,7 +104,7 @@ class Parser(Module):
 
         actions = {
                 cmds.index("DEV_ADR"): [
-                    listen.eq(~arg[8:12] == pads.adr),
+                    dev_adr.eq(~arg[8:12]),
                     # officially there are three separate DACX commands.
                     # here we trust that DEV_ADDR and the DACX command
                     # will come in pairs.
@@ -120,12 +117,10 @@ class Parser(Module):
                 cmds.index("SINGLE"): [
                     mem_dat.eq(arg),
                     we.eq(1),
-                    mem_adr.eq(mem_adr + 1),
                     ],
                 cmds.index("BURST"): [
                     mem_dat.eq(arg),
                     we.eq(1),
-                    mem_adr.eq(mem_adr + 1),
                     If(length,
                         length.eq(length - 1),
                         fsm.next_state(fsm.ARG1),
@@ -137,27 +132,31 @@ class Parser(Module):
                     branch_adrs[i].eq(arg[:13]),
                     ]
 
-        fsm.act(fsm.CMD,
+        read_states = fsm.CMD, fsm.ARG1, fsm.ARG2, fsm.PARSE
+        for i, state in enumerate(read_states[:-1]):
+            fsm.act(state,
                 self.data_in.ack.eq(1),
+                If(self.data_in.stb,
+                    self.data_in.ack.eq(0),
+                    fsm.next_state(read_states[i+1]),
+                  ),
+                )
+
+        fsm.act(fsm.CMD,
                 If(self.data_in.stb,
                     cmd.eq(pd),
-                    self.data_in.ack.eq(0),
-                    fsm.next_state(fsm.ARG1),
                 ))
         fsm.act(fsm.ARG1,
-                self.data_in.ack.eq(1),
+                If(we,
+                    we.eq(0),
+                    mem_adr.eq(mem_adr + 1),
+                ),
                 If(self.data_in.stb,
                     arg[8:].eq(pd),
-                    self.data_in.ack.eq(0),
-                    fsm.next_state(fsm.ARG2),
-                    we.eq(0),
                 ))
         fsm.act(fsm.ARG2,
-                self.data_in.ack.eq(1),
                 If(self.data_in.stb,
                     arg[:8].eq(pd),
-                    self.data_in.ack.eq(0),
-                    fsm.next_state(fsm.PARSE),
                 ))
         fsm.act(fsm.PARSE,
                 fsm.next_state(fsm.CMD),
@@ -175,5 +174,5 @@ class Comm(Module):
         g.add_connection(self.reader, self.parser)
         self.submodules += CompositeActor(g)
         
-        self.comb += pads.reset.eq(self.reader.reset_out)
+        self.comb += pads.reset.eq(self.reader.reset)
         self.comb += pads.go2_out.eq(0)
