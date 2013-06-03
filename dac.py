@@ -22,8 +22,8 @@ class DacReader(Module):
         self.specials.mem = Memory(width=mem_data_width, depth=mem_depth)
         read = self.mem.get_port()
         self.specials.read = read
-        next_adr = Signal(mem_adr_width)
-        self.sync += read.adr.eq(next_adr)
+        cur_adr = Signal(mem_adr_width)
+        self.sync += cur_adr.eq(read.adr)
         self.order = Signal(2)
         self.branch = Signal(3)
         self.branch_adrs = Array(Signal(mem_adr_width) for _ in range(8))
@@ -39,7 +39,9 @@ class DacReader(Module):
                 ]
 
         self.frame_out = Source(frame_layout)
-        fp = self.frame_out.payload
+        fp_send = self.frame_out.payload
+        fp = Record(frame_layout)
+        self.sync += fp_send.raw_bits().eq(fp.raw_bits())
         self.busy = ~self.frame_out.stb
 
         states = "INIT V0 DT V1A V1B V2A V2B V2C V3A V3B V3C IDLE".split()
@@ -49,16 +51,17 @@ class DacReader(Module):
         read_states = states[1:]
         for i, state in enumerate(read_states[:-1]):
             fsm.act(getattr(fsm, state),
-                next_adr.eq(read.adr + 1),
+                read.adr.eq(cur_adr + 1),
                 fsm.next_state(getattr(fsm, read_states[i+1])),
+                fp.raw_bits().eq(fp_send.raw_bits()),
                 )
         
         fsm.act(fsm.INIT,
-                If((read.adr < branch_start) | 
-                   (read.adr >= branch_end),
-                    next_adr.eq(branch_start),
+                If((cur_adr < branch_start) | 
+                   (cur_adr >= branch_end),
+                    read.adr.eq(branch_start),
                 ).Else(
-                    next_adr.eq(read.adr),
+                    read.adr.eq(cur_adr),
                 ),
                 fsm.next_state(fsm.V0),
                 )
@@ -70,7 +73,6 @@ class DacReader(Module):
                     fp.v1.eq(0),
                     fp.v2.eq(0),
                     fp.v3.eq(0),
-                    self.frame_out.stb.eq(1),
                     fsm.next_state(fsm.IDLE),
                 ))
         fsm.act(fsm.DT,
@@ -79,48 +81,48 @@ class DacReader(Module):
                     fp.dt.eq(1 + ~read.dat_r[:15]),
                 ).Else(
                     fp.dt.eq(read.dat_r[:15]),
-                ))
-        fsm.act(fsm.V1A,
-                fp.v1[32:].eq(read.dat_r[:16]),
-                )
-        fsm.act(fsm.V1B,
-                fp.v1[16:32].eq(read.dat_r[:16]),
+                ),
                 If(self.order == 1,
+                    fp.v1.eq(0),
                     fp.v2.eq(0),
                     fp.v3.eq(0),
-                    self.frame_out.stb.eq(1),
                     fsm.next_state(fsm.IDLE),
                 ))
+        fsm.act(fsm.V1A,
+                fp.v1[16:32].eq(read.dat_r[:16]),
+                )
+        fsm.act(fsm.V1B,
+                fp.v1[32:].eq(read.dat_r[:16]),
+                )
         fsm.act(fsm.V2A,
-                fp.v2[32:].eq(read.dat_r[:16]),
+                fp.v2[:16].eq(read.dat_r[:16]),
                 )
         fsm.act(fsm.V2B,
                 fp.v2[16:32].eq(read.dat_r[:16]),
                 )
         fsm.act(fsm.V2C,
-                fp.v2[:16].eq(read.dat_r[:16]),
+                fp.v2[32:].eq(read.dat_r[:16]),
                 If(self.order == 2,
                     fp.v3.eq(0),
-                    self.frame_out.stb.eq(1),
                     fsm.next_state(fsm.IDLE),
                 ))
         fsm.act(fsm.V3A,
-                fp.v3[32:].eq(read.dat_r[:16]),
+                fp.v3[:16].eq(read.dat_r[:16]),
                 )
         fsm.act(fsm.V3B,
                 fp.v3[16:32].eq(read.dat_r[:16]),
                 )
         fsm.act(fsm.V3C,
-                fp.v3[:16].eq(read.dat_r[:16]),
+                fp.v3[32:].eq(read.dat_r[:16]),
                 If(self.order == 3,
-                    self.frame_out.stb.eq(1),
                     fsm.next_state(fsm.IDLE),
                 ),
                 )
         fsm.act(fsm.IDLE,
-                next_adr.eq(read.adr),
+                read.adr.eq(cur_adr),
+                self.frame_out.stb.eq(1),
+                fp.raw_bits().eq(fp_send.raw_bits()),
                 If(self.frame_out.ack,
-                    self.frame_out.stb.eq(0),
                     fsm.next_state(fsm.INIT),
                 ),
                 )
@@ -135,8 +137,6 @@ class DacOut(Module):
         self.trigger = Signal()
         t = Signal(15)
         self.t = t
-        t1 = Signal(15)
-        self.sync += t.eq(t1)
 
         self.freerun = Signal()
         
@@ -148,12 +148,15 @@ class DacOut(Module):
                     frame.v0.eq(frame.v0 + frame.v1),
                     frame.v1.eq(frame.v1 + frame.v2),
                     frame.v2.eq(frame.v2 + frame.v3),
-                    t1.eq(t + 1),
-                ).Elif(self.frame_in.stb &
+                    t.eq(t + 1),
+                ),
+                If((frame.dt == 0) | (t + 1 >= frame.dt),
+                    If(self.frame_in.stb &
                         (self.freerun | self.trigger | ~frame.wait),
-                    frame.raw_bits().eq(self.frame_in.payload.raw_bits()),
-                    self.frame_in.ack.eq(1),
-                    t1.eq(0),
+                        self.frame_in.ack.eq(1),
+                        frame.raw_bits().eq(self.frame_in.payload.raw_bits()),
+                        t.eq(0),
+                    ),
                 ),
                 ]
 
@@ -193,7 +196,6 @@ class TB(Module):
 
 def main():
     from migen.sim.generic import Simulator, TopLevel
-    #from migen.flow import perftools
     from matplotlib import pyplot as plt
     import numpy as np
 
@@ -201,16 +203,16 @@ def main():
     skip = 37
     mem = np.fromstring(
             open(fil, "rb").read()[skip:],
-            dtype=np.uint16)
+            dtype=np.dtype("<u2"))
 
-    n = 1000
+    n = 200
     tb = TB(mem)
     sim = Simulator(tb, TopLevel("dac.vcd"))
     sim.run(n)
     t = np.arange(n)/50e6
     v = np.array(tb.outputs, np.uint16).view(np.int16)*10./(1<<16)
     plt.plot(t, v)
-    #plt.show()
+    plt.show()
 
 
 if __name__ == "__main__":
