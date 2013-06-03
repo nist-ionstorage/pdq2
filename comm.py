@@ -98,9 +98,10 @@ class Parser(Module):
         dac_adr1 = Signal(2)
         self.sync += dac_adr.eq(dac_adr1)
         adr = Signal(13)
+        adr_inc = Signal()
         mem_adr = Signal(13)
         self.sync += mem_adr.eq(adr)
-        mem_dat = Signal(16)
+        mem_dat = Signal(18)
         self.comb += [mem.adr.eq(mem_adr) for mem in mems]
         self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
         we = Array(mem.we for mem in mems)[dac_adr]
@@ -125,12 +126,14 @@ class Parser(Module):
                 cmds.index("MEM_LENGTH"): [branch_adrs[7].eq(arg[:13])],
                 cmds.index("MODE"): [order.eq(arg[8:10]), freerun.eq(~arg[0])],
                 cmds.index("SINGLE"): [
-                    mem_dat.eq(arg),
+                    mem_dat[:16].eq(arg),
                     we.eq(1),
+                    adr_inc.eq(1),
                     ],
                 cmds.index("BURST"): [
-                    mem_dat.eq(arg),
+                    mem_dat[:16].eq(arg),
                     we.eq(1),
+                    adr_inc.eq(1),
                     If(length,
                         length1.eq(length - 1),
                         fsm.next_state(fsm.ARG1),
@@ -153,14 +156,13 @@ class Parser(Module):
                 )
 
         fsm.act(fsm.CMD,
+                adr_inc.eq(0),
                 If(self.data_in.stb,
                     cmd.eq(pd),
                 ))
         fsm.act(fsm.ARG1,
-                If(we,
-                    we.eq(0),
-                    adr.eq(mem_adr + 1),
-                ),
+                we.eq(0),
+                adr.eq(mem_adr + adr_inc),
                 If(self.data_in.stb,
                     arg[8:].eq(pd),
                 ))
