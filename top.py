@@ -17,8 +17,8 @@ class Soc(Module):
         dacs.append(self.dac0)
         self.submodules.dac1 = Dac(platform.request("dac", 1))
         dacs.append(self.dac1)
-        # self.submodules.dac2 = Dac(platform.request("dac", 2))
-        # dacs.append(self.dac2)
+        self.submodules.dac2 = Dac(platform.request("dac", 2))
+        dacs.append(self.dac2)
         self.submodules.comm = Comm(platform.request("comm"), *dacs)
         self.submodules.ctrl = Ctrl(platform.request("ctrl"), *dacs)
 
