@@ -118,7 +118,7 @@ class Parser(Module):
                     # will come in pairs.
                     dac_adr.eq(arg[:2]),
                     ],
-                cmds.index("DATA_LENGTH"): [length.eq(arg[:13])],
+                cmds.index("DATA_LENGTH"): [length1.eq(arg[:13])],
                 cmds.index("MEM_ADR"): [adr.eq(arg[:13])],
                 cmds.index("MEM_LENGTH"): [branch_adrs[7].eq(arg[:13])],
                 cmds.index("MODE"): [order.eq(arg[8:10]), freerun.eq(~arg[0])],
