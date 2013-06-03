@@ -41,11 +41,11 @@ class DacReader(Module):
         self.frame_out = Source(frame_layout)
         self.busy = ~self.frame_out.stb
 
-        states = "INIT V0 DT V1A V1B V2A V2B V2C V3A V3B V3C".split()
+        states = "INIT V0 DT V1A V1B V2A V2B V2C V3A V3B V3C IDLE".split()
         fsm = FSM(*states)
         self.submodules += fsm
 
-        read_states = states[1:] + ["INIT"]
+        read_states = states[1:]
         for i, state in enumerate(read_states[:-1]):
             fsm.act(getattr(fsm, state),
                 adr.eq(read.adr + 1),
@@ -57,10 +57,9 @@ class DacReader(Module):
                    (read.adr >= self.branch_end),
                     adr.eq(self.branch_start),
                 ),
-                self.frame_out.stb.eq(0),
                 fsm.next_state(fsm.V0),
                 )
-        
+
         fp = self.frame_out.payload
         fsm.act(fsm.V0,
                 fp.v0[32:].eq(read.dat_r[:16]),
@@ -71,7 +70,7 @@ class DacReader(Module):
                     fp.v2.eq(0),
                     fp.v3.eq(0),
                     self.frame_out.stb.eq(1),
-                    fsm.next_state(fsm.INIT),
+                    fsm.next_state(fsm.IDLE),
                 ))
         fsm.act(fsm.DT,
                 fp.wait.eq(read.dat_r[15]),
@@ -89,7 +88,7 @@ class DacReader(Module):
                     fp.v2.eq(0),
                     fp.v3.eq(0),
                     self.frame_out.stb.eq(1),
-                    fsm.next_state(fsm.INIT),
+                    fsm.next_state(fsm.IDLE),
                 ))
         fsm.act(fsm.V2A,
                 fp.v2[32:].eq(read.dat_r[:16]),
@@ -102,7 +101,7 @@ class DacReader(Module):
                 If(self.order == 2,
                     fp.v3.eq(0),
                     self.frame_out.stb.eq(1),
-                    fsm.next_state(fsm.INIT),
+                    fsm.next_state(fsm.IDLE),
                 ))
         fsm.act(fsm.V3A,
                 fp.v3[32:].eq(read.dat_r[:16]),
@@ -112,10 +111,17 @@ class DacReader(Module):
                 )
         fsm.act(fsm.V3C,
                 fp.v3[:16].eq(read.dat_r[:16]),
-                self.frame_out.stb.eq(1),
+                If(self.order == 3,
+                    self.frame_out.stb.eq(1),
+                    fsm.next_state(fsm.IDLE),
+                ),
+                )
+        fsm.act(fsm.IDLE,
                 If(self.frame_out.ack,
+                    self.frame_out.stb.eq(0),
                     fsm.next_state(fsm.INIT),
-                ))
+                ),
+                )
 
 
 class DacOut(Module):
