@@ -22,7 +22,7 @@ class DacReader(Module):
         self.specials.mem = Memory(width=mem_data_width, depth=mem_depth)
         read = self.mem.get_port()
         self.specials += read
-        adr = Signal()
+        adr = Signal(mem_adr_width)
         self.sync += read.adr.eq(adr)
         self.order = Signal(2)
         self.branch = Signal(3)
@@ -39,6 +39,7 @@ class DacReader(Module):
                 ]
 
         self.frame_out = Source(frame_layout)
+        fp = self.frame_out.payload
         self.busy = ~self.frame_out.stb
 
         states = "INIT V0 DT V1A V1B V2A V2B V2C V3A V3B V3C IDLE".split()
@@ -59,13 +60,11 @@ class DacReader(Module):
                 ),
                 fsm.next_state(fsm.V0),
                 )
-
-        fp = self.frame_out.payload
         fsm.act(fsm.V0,
                 fp.v0[32:].eq(read.dat_r[:16]),
                 If(self.order == 0,
                     fp.wait.eq(0),
-                    fp.dt.eq(2), # INIT, V0
+                    fp.dt.eq(2), # INIT, V0, IDLE
                     fp.v1.eq(0),
                     fp.v2.eq(0),
                     fp.v3.eq(0),
