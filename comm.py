@@ -87,15 +87,18 @@ class Parser(Module):
         listen = Signal()
         
         dev_adr = Signal(4)
-        self.comb += listen.eq(dev_adr == pads.adr)
+        self.sync += listen.eq((dev_adr == pads.adr)
+                | (cmd == cmds.index("DEV_ADR")))
         length = Signal(13)
         dac_adr = Signal(2)
-        #mem_adr = Signal(13)
-        #mem_dat = Signal(16)
-        #self.comb += [mem.adr.eq(mem_adr) for mem in mems]
-        #self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
-        mem_adr, mem_dat, we = (Array(_)[dac_adr] for _ in zip(*[
-            (mem.adr, mem.dat_w, mem.we) for mem in mems]))
+        adr = Signal(13)
+        mem_adr = Signal(13)
+        mem_dat = Signal(16)
+        self.comb += [mem.adr.eq(mem_adr) for mem in mems]
+        self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
+        we = Array(mem.we for mem in mems)[dac_adr]
+        #mem_adr, mem_dat, we = (Array(_)[dac_adr] for _ in zip(*[
+        #    (mem.adr, mem.dat_w, mem.we) for mem in mems]))
         order, freerun, branch_adrs = (Array(_)[dac_adr] for _ in zip(*[
             (dac.reader.order, dac.out.freerun, dac.reader.branch_adrs)
             for dac in dacs]))
@@ -111,7 +114,7 @@ class Parser(Module):
                     dac_adr.eq(arg[:2]),
                     ],
                 cmds.index("DATA_LENGTH"): [length.eq(arg[:13])],
-                cmds.index("MEM_ADR"): [mem_adr.eq(arg[:13])],
+                cmds.index("MEM_ADR"): [adr.eq(arg[:13])],
                 cmds.index("MEM_LENGTH"): [branch_adrs[7].eq(arg[:13])],
                 cmds.index("MODE"): [order.eq(arg[8:10]), freerun.eq(~arg[0])],
                 cmds.index("SINGLE"): [
@@ -149,18 +152,19 @@ class Parser(Module):
         fsm.act(fsm.ARG1,
                 If(we,
                     we.eq(0),
-                    mem_adr.eq(mem_adr + 1),
+                    adr.eq(adr + 1),
                 ),
                 If(self.data_in.stb,
                     arg[8:].eq(pd),
                 ))
         fsm.act(fsm.ARG2,
+                mem_adr.eq(adr),
                 If(self.data_in.stb,
                     arg[:8].eq(pd),
                 ))
         fsm.act(fsm.PARSE,
                 fsm.next_state(fsm.CMD),
-                If(listen | cmd == cmds.index("DEV_ADR"),
+                If(listen,
                     Case(cmd, actions),
                 ))
 
