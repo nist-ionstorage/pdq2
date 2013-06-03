@@ -126,6 +126,7 @@ class Parser(Module):
                 cmds.index("BURST"): [
                     mem_dat.eq(arg),
                     wes[dac_adr].eq(1),
+                    mem_adr.eq(mem_adr + 1),
                     If(length,
                         length.eq(length - 1),
                         fsm.next_state(fsm.ARG1),

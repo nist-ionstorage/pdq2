@@ -12,14 +12,15 @@ from ctrl import Ctrl
 
 class Soc(Module):
     def __init__(self, platform):
+        dacs = []
         self.submodules.dac0 = Dac(platform.request("dac", 0))
+        dacs.append(self.dac0)
         self.submodules.dac1 = Dac(platform.request("dac", 1))
-        self.submodules.dac2 = Dac(platform.request("dac", 2))
-        self.submodules.comm = Comm(platform.request("comm"),
-                self.dac0, self.dac1, self.dac2)
-        self.submodules.ctrl = Ctrl(platform.request("ctrl"),
-                self.dac0, self.dac1, self.dac2)
-
+        dacs.append(self.dac1)
+        # self.submodules.dac2 = Dac(platform.request("dac", 2))
+        # dacs.append(self.dac2)
+        self.submodules.comm = Comm(platform.request("comm"), *dacs)
+        self.submodules.ctrl = Ctrl(platform.request("ctrl"), *dacs)
 
 if __name__ == "__main__":
     main()
