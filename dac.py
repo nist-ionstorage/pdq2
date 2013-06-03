@@ -18,7 +18,7 @@ frame_layout = [
 
 class DacReader(Module):
     def __init__(self, pads, mem_data_width=16, mem_adr_width=13,
-            mem_depth=4*(1<<10)): # XC3S500E: 20BRAMS 18bits 1024loc
+            mem_depth=6*(1<<10)): # XC3S500E: 20BRAMS 18bits 1024loc
         self.specials.mem = Memory(width=mem_data_width, depth=mem_depth)
         read = self.mem.get_port()
         self.specials += read
