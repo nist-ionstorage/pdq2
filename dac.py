@@ -161,7 +161,7 @@ class DacOut(Module):
                 ]
 
         self.data = Signal(16)
-        self.sync += self.data.eq(frame.v0[-16:])
+        self.sync += self.data.eq(frame.v0[32:])
 
 
 class Dac(Module):
