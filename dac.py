@@ -183,6 +183,7 @@ class TB(Module):
     def do_simulation(self, s):
         self.outputs.append(s.rd(self.dac.out.out))
         if s.cycle_counter == 0:
+            # s.wr(self.dac.out.trigger, 1)
             s.wr(self.dac.reader.branch, 0)
             s.wr(self.dac.reader.order, 3)
             s.wr(self.dac.reader.branch_adrs[0],
@@ -198,20 +199,29 @@ def main():
     from migen.sim.generic import Simulator, TopLevel
     from matplotlib import pyplot as plt
     import numpy as np
+    import pdq
+    pdq.Ftdi = pdq.FileFtdi
 
-    fil = "pdq_None_ftdi.bin"
+    t = np.linspace(0, 3e-6, 11)
+    v = [None] * 8
+    v[1] = (1-np.cos(t/t[-1]*np.pi))/2
+    p = pdq.Pdq("dac_test")
+    p.prepare_simple(t, v, channel=4, mode=3, trigger=True)
+    p.dev.fil.close()
+    fil = "pdq_dac_test_ftdi.bin"
     skip = 37
     mem = np.fromstring(
             open(fil, "rb").read()[skip:],
             dtype=np.dtype("<u2"))
 
-    n = 200
     tb = TB(mem)
     sim = Simulator(tb, TopLevel("dac.vcd"))
+    n = 200
     sim.run(n)
-    t = np.arange(n)/50e6
-    v = np.array(tb.outputs, np.uint16).view(np.int16)*10./(1<<16)
-    plt.plot(t, v)
+    out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
+    tim = np.arange(out.shape[0])/50e6
+    plt.plot(t, v[1])
+    plt.plot(tim, out)
     plt.show()
 
 

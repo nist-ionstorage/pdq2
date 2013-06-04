@@ -50,6 +50,7 @@ except ImportError:
     try:
         import ftd2xx
         Ftdi = D2xxFtdi
+        raise ImportError
     except ImportError:
         Ftdi = FileFtdi
 
@@ -66,7 +67,7 @@ class Pdq(object):
     num_branches = 8
     num_fpgas = 3
     num_dacs = 3
-    max_data = 6144 # data buffer size per channel
+    max_data = 6*(1<<10) # 6144 data buffer size per channel
 
     def __init__(self, serial=None):
         self.dev = Ftdi(serial)
@@ -141,17 +142,17 @@ class Pdq(object):
             branch.append((deriv3>>32).astype("i2"))
 
         branch = np.rec.fromarrays(branch, byteorder="<") # interleave
-
-        if len(derivatives) >= 3: # mode == 3:
-            assert len(branch.data)/2 == (2+2+4+6+6)/2*len(voltages), (
-                  len(voltages), len(branch.data))
+        data = bytes(branch.data)
+        if len(derivatives) == 3: # mode == 3:
+            assert len(data)/2 == (2+2+4+6+6)/2*len(voltages), (
+                  len(voltages), len(data))
         logging.debug("branch shape %s len %i", branch.shape,
-                len(branch.data))
+                len(data))
         logging.debug("branch dtype %s", branch.dtype)
         logging.debug("branch %s", branch)
-        # logging.debug("branch raw %s", str(branch.data))
+        #logging.debug("branch raw %s", repr(data))
 
-        return branch.data # memory buffer
+        return data # memory buffer
     
     def write(self, *segments):
         """
