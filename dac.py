@@ -184,9 +184,9 @@ class TB(Module):
         self.outputs.append(s.rd(self.dac.out.out))
         if s.cycle_counter == 0:
             # s.wr(self.dac.out.trigger, 1)
-            s.wr(self.dac.reader.branch, 0)
+            s.wr(self.dac.reader.branch, 1)
             s.wr(self.dac.reader.order, 3)
-            s.wr(self.dac.reader.branch_adrs[0],
+            s.wr(self.dac.reader.branch_adrs[1],
                     len(self.dac.reader.mem.init))
         if (s.rd(self.dac.out.frame_in.ack) and
                 s.rd(self.dac.out.frame_in.stb)):
