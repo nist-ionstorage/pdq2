@@ -160,8 +160,8 @@ class DacOut(Module):
                 ),
                 ]
 
-        self.out = Signal(16)
-        self.sync += self.out.eq(frame.v0[-16:])
+        self.data = Signal(16)
+        self.sync += self.data.eq(frame.v0[-16:])
 
 
 class Dac(Module):
@@ -181,7 +181,7 @@ class TB(Module):
         self.outputs = []
 
     def do_simulation(self, s):
-        self.outputs.append(s.rd(self.dac.out.out))
+        self.outputs.append(s.rd(self.dac.out.data))
         if s.cycle_counter == 0:
             # s.wr(self.dac.out.trigger, 1)
             s.wr(self.dac.reader.branch, 1)

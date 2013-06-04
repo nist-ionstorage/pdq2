@@ -26,7 +26,7 @@ class Soc(Module):
                     )
             for i in range(16):
                 self.specials += Instance("OBUFDS",
-                        Instance.Input("I", ~dac.out.out[i]),
+                        Instance.Input("I", ~dac.out.data[i]),
                         Instance.Output("O", pads.data_p[i]),
                         Instance.Output("OB", pads.data_n[i]),
                         )
@@ -60,7 +60,7 @@ class TB(Module):
         if s.cycle_counter == 0:
             s.wr(self.pads.branch, 1)
             s.wr(self.comm.parser.adr, 1)
-        self.outputs.append(s.rd(self.dac1.out.out))
+        self.outputs.append(s.rd(self.dac1.out.data))
 
 
 def main():
@@ -82,7 +82,7 @@ def main():
             open(fil, "rb").read(),
             dtype=np.uint8)
 
-    n = 1000
+    n = 2000
     tb = TB(mem)
     sim = Simulator(tb, TopLevel("top.vcd"))
     sim.run(n)

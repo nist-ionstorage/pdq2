@@ -137,16 +137,14 @@ class Parser(Module):
                 cmds.DATA_LENGTH: [length.eq(arg[:13])],
                 cmds.MEM_ADR: [mem_adr.eq(arg[:13])],
                 cmds.MEM_LENGTH: [branch_adrs[7].eq(arg[:13])],
-                cmds.MODE: [order.eq(arg[8:10]), freerun.eq(~arg[0])],
+                cmds.MODE: [order.eq(arg[:2]), freerun.eq(~arg[8])],
                 cmds.SINGLE: [
                     mem_dat[:16].eq(arg),
                     we.eq(1),
-                    mem_adr.eq(mem_adr + 1),
                     ],
                 cmds.BURST: [
                     mem_dat[:16].eq(arg),
                     we.eq(1),
-                    mem_adr.eq(mem_adr + 1),
                     If(length,
                         length.eq(length - 1),
                         state.eq(states.index("ARG1")),
@@ -162,7 +160,10 @@ class Parser(Module):
 
         read_actions = {
             states.index("CMD"): [
-                we.eq(0),
+                If(we,
+                    mem_adr.eq(mem_adr + 1),
+                    we.eq(0),
+                ),
                 self.data_in.ack.eq(1),
                 If(self.data_in.stb & self.data_in.ack,
                     self.data_in.ack.eq(0),
@@ -171,7 +172,10 @@ class Parser(Module):
                 ),
                 ],
             states.index("ARG1"): [
-                we.eq(0),
+                If(we,
+                    mem_adr.eq(mem_adr + 1),
+                    we.eq(0),
+                ),
                 self.data_in.ack.eq(1),
                 If(self.data_in.stb & self.data_in.ack,
                     self.data_in.ack.eq(0),
@@ -217,7 +221,6 @@ class SimReader(sim.SimActor):
 
     def data_gen(self, data):
         for msg in data:
-            print("gen {}".format(repr(msg)))
             yield Token("data_out", {"data": msg})
 
 
