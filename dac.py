@@ -36,7 +36,8 @@ class DacReader(Module):
 
         self.frame_out = Source(frame_layout)
         fp = self.frame_out.payload
-        self.busy = ~self.frame_out.stb
+        self.busy = Signal()
+        self.comb += self.busy.eq(~self.frame_out.stb)
 
         states = dict((v, i) for i, v in enumerate(
             "IDLE V0 DT V1A V1B V2A V2B V2C V3A V3B V3C".split()))
@@ -92,7 +93,8 @@ class DacOut(Module):
         self.frame_in = Sink(frame_layout)
         frame = Record(frame_layout)
         self.frame = frame
-        self.busy = frame.dt > 0
+        self.busy = Signal()
+        self.comb += self.busy.eq(frame.dt > 1)
 
         self.trigger = Signal()
         self.freerun = Signal()

@@ -16,9 +16,9 @@ class Ft245r_rx(Module):
         rxf = Signal()
         rd = Signal()
         self.comb += rxf.eq(~pads.rxfl), pads.rdl.eq(~rd)
-        #self.comb += self.data_out.payload.data.eq(pads.data)
 
-        self.busy = ~self.data_out.stb
+        self.busy = Signal()
+        self.comb += self.busy.eq(~self.data_out.stb)
 
         states = "RESET FILL SETUP HOLD".split()
         states = dict((v, i) for i, v in enumerate(states))
@@ -41,12 +41,12 @@ class Ft245r_rx(Module):
                     If(t < 3,
                         t.eq(t + 1),
                     ).Else(
-                        If(pads.rd_in,
+                        If(pads.rd_in, # from master to both
                             t.eq(0),
                             state.eq(states["SETUP"]),
-                        ).Elif(rxf,
-                            rd.eq(1),
-                            pads.rd_out.eq(1),
+                        ).Elif(rxf, # master only
+                            rd.eq(1), # maste ronly
+                            pads.rd_out.eq(1), # to both
                         ),
                     )],
                 "SETUP": [
@@ -55,8 +55,8 @@ class Ft245r_rx(Module):
                     ).Else(
                         self.data_out.payload.data.eq(pads.data),
                         self.data_out.stb.eq(1),
-                        rd.eq(0),
-                        pads.rd_out.eq(0),
+                        rd.eq(0), # master only
+                        pads.rd_out.eq(0), # to both
                         t.eq(0),
                         state.eq(states["HOLD"]),
                     )],
@@ -73,7 +73,8 @@ class Ft245r_rx(Module):
 class Parser(Module):
     def __init__(self, *dacs):
         self.data_in = Sink(data_layout)
-        self.busy = ~self.data_in.ack
+        self.busy = Signal()
+        self.comb += self.busy.eq(~self.data_in.ack)
         mems = [dac.reader.mem.get_port(write_capable=True) for dac in dacs]
         self.specials += mems
 
@@ -147,6 +148,8 @@ class Parser(Module):
                     we.eq(0),
                     mem_adr.eq(mem_adr + 1),
                 ),
+                # this being only clk/2 max speed does not matter since
+                # the source is even slower (clk/50)
                 self.data_in.ack.eq(1),
                 If(self.data_in.stb & self.data_in.ack,
                     self.data_in.ack.eq(0),
@@ -177,7 +180,7 @@ class Comm(Module):
         
         self.comb += self.parser.adr.eq(pads.adr)
         self.comb += pads.reset.eq(self.reader.reset)
-        self.comb += pads.go2_out.eq(0)
+        self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
 
 
 class SimReader(SimActor):
