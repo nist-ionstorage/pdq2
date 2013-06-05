@@ -1,10 +1,9 @@
 from migen.fhdl.std import *
-from migen.genlib.fsm import FSM
 from migen.genlib.record import Record
-from migen.flow.actor import *
-from migen.flow.transactions import *
-from migen.flow.network import *
-from migen.actorlib import sim
+from migen.flow.actor import Source, Sink
+from migen.flow.transactions import Token
+from migen.actorlib.sim import SimActor
+from migen.flow.network import DataFlowGraph, CompositeActor
 
 
 data_layout = [("data", 8)]
@@ -22,50 +21,51 @@ class Ft245r_rx(Module):
         self.busy = ~self.data_out.stb
 
         states = "RESET FILL SETUP HOLD".split()
-        fsm = FSM(*states)
-        self.submodules += fsm
+        states = dict((v, i) for i, v in enumerate(states))
+        state = Signal(max=len(states))
+
         t = Signal(max=1<<20)
-        t1 = Signal(max=1<<20)
-        self.sync += t.eq(t1)
         self.reset = Signal()
 
-        fsm.act(fsm.RESET,
-                self.reset.eq(1),
-                If(t < (1<<20)-1,
-                    t1.eq(t + 1),
-                ).Else(
-                    self.reset.eq(0),
-                    t1.eq(0),
-                    fsm.next_state(fsm.FILL),
-                ))
-        fsm.act(fsm.FILL,
-                If(t < 3,
-                    t1.eq(t + 1),
-                ).Else(
-                    If(pads.rd_in,
-                        t1.eq(0),
-                        fsm.next_state(fsm.SETUP),
-                    ).Elif(rxf,
-                        rd.eq(1),
-                        pads.rd_out.eq(1),
-                    ),
-                ))
-        fsm.act(fsm.SETUP,
-                If(t < 3,
-                    t1.eq(t + 1),
-                ).Else(
-                    self.data_out.payload.data.eq(pads.data),
-                    self.data_out.stb.eq(1),
-                    rd.eq(0),
-                    pads.rd_out.eq(0),
-                    t1.eq(0),
-                    fsm.next_state(fsm.HOLD),
-                ))
-        fsm.act(fsm.HOLD,
-                If(self.data_out.ack,
-                    self.data_out.stb.eq(0),
-                    fsm.next_state(fsm.FILL),
-                ))
+        actions = {
+                "RESET": [
+                    self.reset.eq(1),
+                    If(t < (1<<20)-1,
+                        t.eq(t + 1),
+                    ).Else(
+                        self.reset.eq(0),
+                        t.eq(0),
+                        state.eq(states["FILL"]),
+                    )],
+                "FILL": [
+                    If(t < 3,
+                        t.eq(t + 1),
+                    ).Else(
+                        If(pads.rd_in,
+                            t.eq(0),
+                            state.eq(states["SETUP"]),
+                        ).Elif(rxf,
+                            rd.eq(1),
+                            pads.rd_out.eq(1),
+                        ),
+                    )],
+                "SETUP": [
+                    If(t < 3,
+                        t.eq(t + 1),
+                    ).Else(
+                        self.data_out.payload.data.eq(pads.data),
+                        self.data_out.stb.eq(1),
+                        rd.eq(0),
+                        pads.rd_out.eq(0),
+                        t.eq(0),
+                        state.eq(states["HOLD"]),
+                    )],
+                "HOLD": [
+                    If(self.data_out.ack,
+                        self.data_out.stb.eq(0),
+                        state.eq(states["FILL"]),
+                    )],
+                }
 
 
 class Parser(Module):
@@ -178,10 +178,10 @@ class Comm(Module):
         self.comb += pads.go2_out.eq(0)
 
 
-class SimReader(sim.SimActor):
+class SimReader(SimActor):
     def __init__(self, data):
         self.data_out = Source(data_layout)
-        sim.SimActor.__init__(self, self.data_gen(data))
+        SimActor.__init__(self, self.data_gen(data))
 
     def data_gen(self, data):
         for msg in data:
