@@ -66,6 +66,8 @@ class Ft245r_rx(Module):
                         state.eq(states["FILL"]),
                     )],
                 }
+        actions = dict((states[k], _) for k, _ in actions.items())
+        self.sync += Case(state, actions)
 
 
 class Parser(Module):
