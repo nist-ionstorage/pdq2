@@ -137,6 +137,7 @@ class DacOut(Module):
         self.trigger = Signal()
         t = Signal(15)
         self.t = t
+        self.data = Signal(16)
 
         self.freerun = Signal()
         
@@ -145,6 +146,7 @@ class DacOut(Module):
         self.sync += [
                 If(t < frame.dt,
                     self.frame_in.ack.eq(0),
+                    self.data.eq(frame.v0[32:]),
                     frame.v0.eq(frame.v0 + frame.v1),
                     frame.v1.eq(frame.v1 + frame.v2),
                     frame.v2.eq(frame.v2 + frame.v3),
@@ -160,8 +162,6 @@ class DacOut(Module):
                 ),
                 ]
 
-        self.data = Signal(16)
-        self.sync += self.data.eq(frame.v0[32:])
 
 
 class Dac(Module):
@@ -183,7 +183,7 @@ class TB(Module):
     def do_simulation(self, s):
         self.outputs.append(s.rd(self.dac.out.data))
         if s.cycle_counter == 0:
-            # s.wr(self.dac.out.trigger, 1)
+            #s.wr(self.dac.out.trigger, 1)
             s.wr(self.dac.reader.branch, 1)
             s.wr(self.dac.reader.order, 3)
             s.wr(self.dac.reader.branch_adrs[1],
@@ -202,7 +202,7 @@ def main():
     import pdq
     pdq.Ftdi = pdq.FileFtdi
 
-    t = np.linspace(0, 3e-6, 11)
+    t = np.linspace(0, 3e-6, 11) + 12/50e6
     v = [None] * 8
     v[1] = (1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq("dac_test")
