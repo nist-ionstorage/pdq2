@@ -11,8 +11,8 @@ class Soc(Module):
     def __init__(self, platform):
         clk = ClockSignal()
         dacs = []
-        for i in range(3):
-            dac = Dac()
+        for i, mem in enumerate((1<<13, 1<<13, 1<<12)):
+            dac = Dac(mem_depth=mem)
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)
             pads = platform.request("dac", i)
@@ -46,7 +46,7 @@ tb_pads = [
 class TB(Module):
     def __init__(self, mem=None):
         dacs = []
-        for i in range(2):
+        for i in range(3):
             dac = Dac()
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)

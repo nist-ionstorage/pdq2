@@ -15,7 +15,7 @@ frame_layout = [
 
 
 class DacReader(Module):
-    def __init__(self, mem_data_width=16, mem_adr_width=13,
+    def __init__(self, mem_data_width=16, mem_adr_width=16,
             mem_depth=4*(1<<10)): # XC3S500E: 20BRAMS 18bits 1024loc
         self.specials.mem = Memory(width=mem_data_width, depth=mem_depth)
         read = self.mem.get_port()
@@ -117,9 +117,9 @@ class DacOut(Module):
 
 
 class Dac(Module):
-    def __init__(self):
+    def __init__(self, **kwargs):
         g = DataFlowGraph()
-        self.reader = DacReader()
+        self.reader = DacReader(**kwargs)
         self.out = DacOut()
         g.add_connection(self.reader, self.out)
         self.submodules.graph = CompositeActor(g)
