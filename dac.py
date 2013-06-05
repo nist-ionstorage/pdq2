@@ -59,7 +59,7 @@ class DacReader(Module):
                 "IDLE": [
                     If(self.frame_out.ack | ~self.frame_out.stb,
                         self.frame_out.stb.eq(0),
-                        fp.eq(0),
+                        fp.raw_bits().eq(0),
                         read.adr.eq(read.adr + 1),
                         state.eq(states["V0"]),
                     )],
