@@ -76,11 +76,10 @@ class Parser(Module):
         self.specials += mems
 
         states = "CMD ARG1 ARG2 PARSE".split()
-        #fsm = FSM(*states)
-        #self.submodules += fsm
-        state = Signal(2)
+        states = dict((v, i) for i, v in enumerate(states))
+        state = Signal(max=len(states))
 
-        cmd_codes = {
+        cmds = {
             "DEV_ADR": 0x00,
             "DATA_LENGTH": 0x01,
             "MEM_ADR": 0x02,
@@ -99,105 +98,70 @@ class Parser(Module):
             "BRANCH5": 0x25,
             "BRANCH6": 0x26,
         }
-        class Dummy(object):
-            pass
-        cmds = Dummy()
-        for k, v in cmd_codes.items():
-            setattr(cmds, k, v)
 
         cmd = Signal(8)
         arg = Signal(16)
-        listen = Signal()
         self.adr = Signal(4)
-        
         dev_adr = Signal(4)
+        listen = Signal()
         self.sync += listen.eq((dev_adr == self.adr)
-                | (cmd == cmds.DEV_ADR))
-        length = Signal(13)
+                | (cmd == cmds["DEV_ADR"]))
+        length = Signal(16)
         dac_adr = Signal(2)
-        mem_adr = Signal(13)
+        mem_adr = Signal(16)
         mem_dat = Signal(16)
-        self.comb += [mem.adr.eq(mem_adr) for mem in mems]
+        self.comb += [mem.adr.eq(mem_adr[:flen(mem.adr)]) for mem in mems]
         self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
+
         we = Array(mem.we for mem in mems)[dac_adr]
-        #mem_adr, mem_dat, we = (Array(_)[dac_adr] for _ in zip(*[
-        #    (mem.adr, mem.dat_w, mem.we) for mem in mems]))
         order, freerun, branch_adrs = (Array(_)[dac_adr] for _ in zip(*[
             (dac.reader.order, dac.out.freerun, dac.reader.branch_adrs)
             for dac in dacs]))
 
-        actions = {
-                cmds.DEV_ADR: [
-                    dev_adr.eq(arg[8:12]),
-                    # officially there are three separate DACX commands.
-                    # here we trust that DEV_ADDR and the DACX command
-                    # will come in pairs.
-                    dac_adr.eq(arg[:2]),
-                    ],
-                cmds.DATA_LENGTH: [length.eq(arg[:13])],
-                cmds.MEM_ADR: [mem_adr.eq(arg[:13])],
-                cmds.MEM_LENGTH: [branch_adrs[7].eq(arg[:13])],
-                cmds.MODE: [order.eq(arg[:2]), freerun.eq(~arg[8])],
-                cmds.SINGLE: [
-                    mem_dat[:16].eq(arg),
-                    we.eq(1),
-                    ],
-                cmds.BURST: [
-                    mem_dat[:16].eq(arg),
-                    we.eq(1),
+        cmd_actions = {
+                # officially there are three separate DACX commands.
+                # here we trust that DEV_ADDR and the DACX command
+                # will come in pairs.
+                "DEV_ADR": [dev_adr.eq(arg[8:12]), dac_adr.eq(arg[:2])],
+                "DATA_LENGTH": [length.eq(arg)],
+                "MEM_ADR": [mem_adr.eq(arg)],
+                "MEM_LENGTH": [branch_adrs[7].eq(arg)],
+                "MODE": [order.eq(arg[:2]), freerun.eq(~arg[8])],
+                "SINGLE": [mem_dat[:16].eq(arg), we.eq(1)],
+                "BURST": [mem_dat[:16].eq(arg), we.eq(1),
                     If(length,
                         length.eq(length - 1),
-                        state.eq(states.index("ARG1")),
-                    ),
-                    ],
+                        state.eq(states["ARG1"]),
+                    )],
                 }
         for i in range(7):
-            actions[cmd_codes["BRANCH{}".format(i)]] = [
-                    branch_adrs[i].eq(arg[:13]),
-                    ]
+            cmd_actions["BRANCH{}".format(i)] = [branch_adrs[i].eq(arg)]
+        cmd_actions = dict((cmds[k], _) for k, _ in cmd_actions.items())
 
         pd = self.data_in.payload.data 
 
+        ack_read_next = lambda reg, next: [
+                If(we,
+                    we.eq(0),
+                    mem_adr.eq(mem_adr + 1),
+                ),
+                self.data_in.ack.eq(1),
+                If(self.data_in.stb & self.data_in.ack,
+                    self.data_in.ack.eq(0),
+                    reg.eq(pd),
+                    state.eq(states[next]),
+                )]
+
         read_actions = {
-            states.index("CMD"): [
-                If(we,
-                    mem_adr.eq(mem_adr + 1),
-                    we.eq(0),
-                ),
-                self.data_in.ack.eq(1),
-                If(self.data_in.stb & self.data_in.ack,
-                    self.data_in.ack.eq(0),
-                    cmd.eq(pd),
-                    state.eq(states.index("ARG1")),
-                ),
-                ],
-            states.index("ARG1"): [
-                If(we,
-                    mem_adr.eq(mem_adr + 1),
-                    we.eq(0),
-                ),
-                self.data_in.ack.eq(1),
-                If(self.data_in.stb & self.data_in.ack,
-                    self.data_in.ack.eq(0),
-                    arg[:8].eq(pd),
-                    state.eq(states.index("ARG2")),
-                ),
-                ],
-            states.index("ARG2"): [
-                self.data_in.ack.eq(1),
-                If(self.data_in.stb & self.data_in.ack,
-                    self.data_in.ack.eq(0),
-                    arg[8:].eq(pd),
-                    state.eq(states.index("PARSE")),
-                ),
-                ],
-            states.index("PARSE"): [
-                state.eq(states.index("CMD")),
-                If(listen,
-                    Case(cmd, actions),
-                ),
-                ],
-        }
+                "CMD": ack_read_next(cmd, "ARG1"),
+                "ARG1": ack_read_next(arg[:8], "ARG2"),
+                "ARG2": ack_read_next(arg[8:], "PARSE"),
+                "PARSE": [state.eq(states["CMD"]),
+                    If(listen,
+                        Case(cmd, cmd_actions),
+                    )],
+                }
+        read_actions = dict((states[k], _) for k, _ in read_actions.items())
         self.sync += Case(state, read_actions)
 
 

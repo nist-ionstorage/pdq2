@@ -22,9 +22,9 @@ class DacReader(Module):
         self.specials.read = read
         self.order = Signal(2)
         self.branch = Signal(3)
-        self.branch_adrs = Array(Signal(mem_adr_width) for _ in range(8))
-        branch_start = Signal(mem_adr_width)
-        branch_end = Signal(mem_adr_width)
+        self.branch_adrs = Array(Signal(16) for _ in range(8))
+        branch_start = Signal(16)
+        branch_end = Signal(16)
         self.comb += [
                 If(self.branch == 0,
                     branch_start.eq(0),
@@ -78,9 +78,9 @@ class DacReader(Module):
                 "V3C": read_next(fp.v3[32:], "IDLE") + short_send(3) + [
                     # 2-cycle delay, undo incr, will be redone in IDLE
                     read.adr.eq(read.adr),
-                    If((read.adr < branch_start) |
-                       (read.adr >= branch_end),
-                        read.adr.eq(branch_start),
+                    If((read.adr < branch_start[:mem_adr_width]) |
+                       (read.adr >= branch_end[:mem_adr_width]),
+                        read.adr.eq(branch_start[:mem_adr_width]),
                     )],
                 }
         actions = dict((states[k], _) for k, _ in actions.items())
