@@ -6,7 +6,58 @@ from migen.actorlib.sim import SimActor
 from migen.flow.network import DataFlowGraph, CompositeActor
 
 
+class SimFt245r_rx(Module):
+    tb_pads = [
+            ("rxfl", 1),
+            ("rdl", 1),
+            ("rd_in", 1),
+            ("rd_out", 1),
+            ("data", 8),
+            ]
+
+    def __init__(self, data):
+        pads = Record(self.tb_pads)
+        self.pads = pads
+        self.data = data
+        self.comb += pads.rd_in.eq(pads.rd_out)
+        self.state = "init"
+        self.wait = 0
+
+    def do_simulation(self, s):
+        if self.state == "init":
+            self.wait += 1
+            s.wr(self.pads.rxfl, 1)
+            if self.wait >= 3:
+                self.wait = 0
+                self.state = "fill"
+        elif self.state == "fill":
+            if self.data:
+                s.wr(self.pads.rxfl, 0)
+                if s.rd(self.pads.rdl) == 0:
+                    self.state = "setup"
+        elif self.state == "setup":
+            self.wait += 1
+            if self.wait >= 2:
+                s.wr(self.pads.data, self.data.pop(0))
+                self.wait = 0
+                self.state = "hold"
+        elif self.state == "hold":
+            if s.rd(self.pads.rdl) == 1:
+                s.wr(self.pads.rxfl, 1)
+                self.state = "init"
+
+
 data_layout = [("data", 8)]
+
+
+class SimReader(SimActor):
+    def __init__(self, data):
+        self.data_out = Source(data_layout)
+        SimActor.__init__(self, self.data_gen(data))
+
+    def data_gen(self, data):
+        for msg in data:
+            yield Token("data_out", {"data": msg})
 
 
 class Ft245r_rx(Module):
@@ -30,7 +81,7 @@ class Ft245r_rx(Module):
         actions = {
                 "RESET": [
                     self.reset.eq(1),
-                    If(t < (1<<20)-1,
+                    If(t < (1<<6)-1, # 20
                         t.eq(t + 1),
                     ).Else(
                         self.reset.eq(0),
@@ -45,7 +96,7 @@ class Ft245r_rx(Module):
                             t.eq(0),
                             state.eq(states["SETUP"]),
                         ).Elif(rxf, # master only
-                            rd.eq(1), # maste ronly
+                            rd.eq(1), # master ronly
                             pads.rd_out.eq(1), # to both
                         ),
                     )],
@@ -183,19 +234,14 @@ class Comm(Module):
         self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
 
 
-class SimReader(SimActor):
-    def __init__(self, data):
-        self.data_out = Source(data_layout)
-        SimActor.__init__(self, self.data_gen(data))
-
-    def data_gen(self, data):
-        for msg in data:
-            yield Token("data_out", {"data": msg})
-
-
 class SimComm(Module):
     def __init__(self, mem, *dacs):
-        self.reader = SimReader(mem)
+        mem = list(mem)
+        if False:
+            self.reader = SimReader(mem)
+        else:
+            self.submodules.simin = SimFt245r_rx(mem)
+            self.reader = Ft245r_rx(self.simin.pads)
         self.parser = Parser(*dacs)
         g = DataFlowGraph()
         g.add_connection(self.reader, self.parser)

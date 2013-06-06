@@ -35,15 +35,15 @@ class Soc(Module):
         self.submodules.ctrl = Ctrl(platform.request("ctrl"), *dacs)
 
 
-tb_pads = [
-        ("adr", 4),
-        ("aux", 1),
-        ("branch", 3),
-        ("trigger", 1),
-        ("reset", 1),
-        ]
-
 class TB(Module):
+    tb_pads = [
+            ("adr", 4),
+            ("aux", 1),
+            ("branch", 3),
+            ("trigger", 1),
+            ("reset", 1),
+            ]
+
     def __init__(self, mem=None):
         dacs = []
         for i in range(3):
@@ -51,7 +51,7 @@ class TB(Module):
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)
             dac.reader.mem.init = [0] * dac.reader.mem.depth
-        self.pads = Record(tb_pads)
+        self.pads = Record(self.tb_pads)
         self.submodules.comm = SimComm(mem, *dacs)
         self.submodules.ctrl = Ctrl(self.pads, *dacs)
         self.comb += self.comm.parser.adr.eq(self.pads.adr)
@@ -84,7 +84,7 @@ def main():
             open(fil, "rb").read(),
             dtype=np.uint8)
 
-    n = 1000
+    n = 3000
     tb = TB(mem)
     sim = Simulator(tb, TopLevel("top.vcd"))
     sim.run(n)
