@@ -27,7 +27,7 @@ class SimFt245r_rx(Module):
         if self.state == "init":
             self.wait += 1
             s.wr(self.pads.rxfl, 1)
-            if self.wait >= 3:
+            if self.wait >= 1:
                 self.wait = 0
                 self.state = "fill"
         elif self.state == "fill":
@@ -64,9 +64,7 @@ class Ft245r_rx(Module):
     def __init__(self, pads):
         self.data_out = Source(data_layout)
 
-        rxf = Signal()
-        rd = Signal()
-        self.comb += rxf.eq(~pads.rxfl), pads.rdl.eq(~rd)
+        pads.rdl.reset = 1
 
         self.busy = Signal()
         self.comb += self.busy.eq(~self.data_out.stb)
@@ -77,14 +75,14 @@ class Ft245r_rx(Module):
 
         t = Signal(max=1<<20)
         self.reset = Signal()
+        self.comb += self.reset.eq(state == states["RESET"])
+        self.comb += pads.rd_out.eq(~pads.rdl)
 
         actions = {
                 "RESET": [
-                    self.reset.eq(1),
                     If(t < (1<<6)-1, # 20
                         t.eq(t + 1),
                     ).Else(
-                        self.reset.eq(0),
                         t.eq(0),
                         state.eq(states["FILL"]),
                     )],
@@ -95,9 +93,8 @@ class Ft245r_rx(Module):
                         If(pads.rd_in, # from master to both
                             t.eq(0),
                             state.eq(states["SETUP"]),
-                        ).Elif(rxf, # master only
-                            rd.eq(1), # master ronly
-                            pads.rd_out.eq(1), # to both
+                        ).Elif(~pads.rxfl, # master only
+                            pads.rdl.eq(0), # master ronly
                         ),
                     )],
                 "SETUP": [
@@ -106,8 +103,7 @@ class Ft245r_rx(Module):
                     ).Else(
                         self.data_out.payload.data.eq(pads.data),
                         self.data_out.stb.eq(1),
-                        rd.eq(0), # master only
-                        pads.rd_out.eq(0), # to both
+                        pads.rdl.eq(1), # master only
                         t.eq(0),
                         state.eq(states["HOLD"]),
                     )],
