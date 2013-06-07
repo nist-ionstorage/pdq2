@@ -23,6 +23,8 @@ class DacReader(Module):
         self.order = Signal(2)
         self.branch = Signal(3)
         self.branch_adrs = Array(Signal(16) for _ in range(8))
+        self.freerun = Signal()
+        self.trigger = Signal()
         branch_start = Signal(16)
         branch_end = Signal(16)
         self.comb += [
@@ -97,32 +99,30 @@ class DacOut(Module):
         self.comb += self.busy.eq(frame.dt > 1)
 
         self.trigger = Signal()
-        self.freerun = Signal()
         self.data = Signal(16)
+        self.comb += self.data.eq(frame.v0[32:])
+        self.comb += self.frame_in.ack.eq((frame.dt <= 1) &
+                (self.trigger | ~frame.wait))
 
         self.sync += [
-                If((frame.dt <= 2) &
-                        (self.freerun | self.trigger | ~frame.wait),
-                    self.frame_in.ack.eq(1),
-                ),
                 If(frame.dt > 1,
                     frame.v0.eq(frame.v0 + frame.v1),
                     frame.v1.eq(frame.v1 + frame.v2),
                     frame.v2.eq(frame.v2 + frame.v3),
                     frame.dt.eq(frame.dt - 1),
                 ).Elif(self.frame_in.stb & self.frame_in.ack,
-                    self.frame_in.ack.eq(0),
                     frame.eq(self.frame_in.payload),
                 ),
-                self.data.eq(frame.v0[32:]),
                 ]
 
 
 class Dac(Module):
     def __init__(self, **kwargs):
-        g = DataFlowGraph()
         self.reader = DacReader(**kwargs)
         self.out = DacOut()
+        self.comb += self.out.trigger.eq(self.reader.trigger |
+                self.reader.freerun)
+        g = DataFlowGraph()
         g.add_connection(self.reader, self.out)
         self.submodules.graph = CompositeActor(g)
 

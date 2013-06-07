@@ -3,20 +3,12 @@ from migen.genlib.record import Record
 from migen.flow.actor import Source, Sink
 from migen.flow.transactions import Token
 from migen.actorlib.sim import SimActor
+from migen.actorlib.structuring import Cast, Pack, pack_layout
 from migen.flow.network import DataFlowGraph, CompositeActor
 
 
 class SimFt245r_rx(Module):
-    tb_pads = [
-            ("rxfl", 1),
-            ("rdl", 1),
-            ("rd_in", 1),
-            ("rd_out", 1),
-            ("data", 8),
-            ]
-
-    def __init__(self, data):
-        pads = Record(self.tb_pads)
+    def __init__(self, pads, data):
         self.pads = pads
         self.data = data
         self.comb += pads.rd_in.eq(pads.rd_out)
@@ -48,16 +40,6 @@ class SimFt245r_rx(Module):
 
 
 data_layout = [("data", 8)]
-
-
-class SimReader(SimActor):
-    def __init__(self, data):
-        self.data_out = Source(data_layout)
-        SimActor.__init__(self, self.data_gen(data))
-
-    def data_gen(self, data):
-        for msg in data:
-            yield Token("data_out", {"data": msg})
 
 
 class Ft245r_rx(Module):
@@ -117,8 +99,18 @@ class Ft245r_rx(Module):
         self.sync += Case(state, actions)
 
 
+class SimReader(SimActor):
+    def __init__(self, data):
+        self.data_out = Source(data_layout)
+        SimActor.__init__(self, self.data_gen(data))
+
+    def data_gen(self, data):
+        for msg in data:
+            yield Token("data_out", {"data": msg})
+
+
 class Parser(Module):
-    def __init__(self, *dacs):
+    def __init__(self, dacs):
         self.data_in = Sink(data_layout)
         self.busy = Signal()
         self.comb += self.busy.eq(~self.data_in.ack)
@@ -165,7 +157,7 @@ class Parser(Module):
 
         we = Array(mem.we for mem in mems)[dac_adr]
         order, freerun, branch_adrs = (Array(_)[dac_adr] for _ in zip(*[
-            (dac.reader.order, dac.out.freerun, dac.reader.branch_adrs)
+            (dac.reader.order, dac.reader.freerun, dac.reader.branch_adrs)
             for dac in dacs]))
 
         cmd_actions = {
@@ -217,28 +209,78 @@ class Parser(Module):
         self.sync += Case(state, read_actions)
 
 
+mem_layout = [("data", 16)]
+
+class Parser2(Module):
+    def __init__(self, dacs):
+        self.data_in = Sink(mem_layout)
+        self.busy = Signal()
+        self.comb += self.busy.eq(~self.data_in.ack)
+        mems = [dac.reader.mem.get_port(write_capable=True) for dac in dacs]
+        self.specials += mems
+       
+        self.adr = Signal(4)
+
+        adr = Signal(16)
+        dev_adr = Signal(4)
+        self.comb += dev_adr.eq(adr[8:][:flen(self.adr)])
+        dac_adr = Signal(2)
+        self.comb += dac_adr.eq(adr[:flen(dac_adr)])
+        data_len = Signal(16)
+        listen = Signal()
+        self.comb += listen.eq(adr[8:8+flen(self.adr)] == self.adr)
+        mem_adr = Signal(16)
+        self.comb += [mem.adr.eq(mem_adr[:flen(mem.adr)]) for mem in mems]
+        mem_dat = Signal(16)
+        self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
+        we = Array(mem.we for mem in mems)[dac_adr]
+
+        states = "DEV_ADR DATA_LEN MEM_ADR DATA".split()
+        states = dict((v, i) for i, v in enumerate(states))
+        state = Signal(max=len(states))
+ 
+        data = self.data_in.payload.data
+        self.comb += self.data_in.ack.eq(1)
+        actions = {
+                "DEV_ADR": [we.eq(0), adr.eq(data),
+                    state.eq(states["DATA_LEN"])],
+                "DATA_LEN": [data_len.eq(data),
+                    state.eq(states["MEM_ADR"])],
+                "MEM_ADR": [mem_adr.eq(data),
+                    state.eq(states["DATA"])],
+                "DATA": [
+                    mem_dat.eq(data),
+                    mem_adr.eq(mem_adr + 1),
+                    data_len.eq(data_len - 1),
+                    If(listen,
+                        we.eq(1),
+                    ),
+                    If(data_len == 0,
+                        state.eq(states["DEV_ADR"]),
+                    )],
+                }
+        actions = dict((states[k], _) for k, _ in actions.items())
+        self.sync += If(self.data_in.stb & self.data_in.ack,
+                Case(state, actions),
+                )
+
+
 class Comm(Module):
-    def __init__(self, pads, *dacs):
+    def __init__(self, pads, dacs, mem=None):
+        g = DataFlowGraph()
+        if mem is not None:
+            mem = list(mem)
+            self.submodules.simin = SimFt245r_rx(pads, mem)
+            #self.reader = SimReader(mem)
         self.reader = Ft245r_rx(pads)
-        self.parser = Parser(*dacs)
-        g = DataFlowGraph()
-        g.add_connection(self.reader, self.parser)
-        self.submodules += CompositeActor(g)
-        
-        self.comb += self.parser.adr.eq(pads.adr)
-        self.comb += pads.reset.eq(self.reader.reset)
-        self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
-
-
-class SimComm(Module):
-    def __init__(self, mem, *dacs):
-        mem = list(mem)
-        if False:
-            self.reader = SimReader(mem)
+        if True: # old
+            self.parser = Parser(dacs)
+            g.add_connection(self.reader, self.parser)
         else:
-            self.submodules.simin = SimFt245r_rx(mem)
-            self.reader = Ft245r_rx(self.simin.pads)
-        self.parser = Parser(*dacs)
-        g = DataFlowGraph()
-        g.add_connection(self.reader, self.parser)
+            pack = Pack(data_layout, 2)
+            g.add_connection(self.reader, pack)
+            cast = Cast(pack_layout(data_layout, 2), mem_layout)
+            g.add_connection(pack, cast)
+            self.parser = Parser2(dacs)
+            g.add_connection(cast, self.parser)
         self.submodules += CompositeActor(g) 

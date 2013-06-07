@@ -3,7 +3,7 @@ from migen.genlib.record import Record
 from migen.flow.actor import *
 
 from dac import Dac
-from comm import Comm, SimComm
+from comm import Comm
 from ctrl import Ctrl
 
 
@@ -31,12 +31,17 @@ class Soc(Module):
                         Instance.Output("OB", pads.data_n[i]),
                         )
 
-        self.submodules.comm = Comm(platform.request("comm"), *dacs)
-        self.submodules.ctrl = Ctrl(platform.request("ctrl"), *dacs)
+        self.submodules.comm = Comm(platform.request("comm"), dacs)
+        self.submodules.ctrl = Ctrl(platform.request("ctrl"), dacs)
 
 
 class TB(Module):
     tb_pads = [
+            ("rxfl", 1),
+            ("rdl", 1),
+            ("rd_in", 1),
+            ("rd_out", 1),
+            ("data", 8),
             ("adr", 4),
             ("aux", 1),
             ("branch", 3),
@@ -52,8 +57,8 @@ class TB(Module):
             dacs.append(dac)
             dac.reader.mem.init = [0] * dac.reader.mem.depth
         self.pads = Record(self.tb_pads)
-        self.submodules.comm = SimComm(mem, *dacs)
-        self.submodules.ctrl = Ctrl(self.pads, *dacs)
+        self.submodules.comm = Comm(self.pads, dacs, mem)
+        self.submodules.ctrl = Ctrl(self.pads, dacs)
         self.comb += self.comm.parser.adr.eq(self.pads.adr)
         self.outputs = []
 
