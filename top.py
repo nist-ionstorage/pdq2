@@ -47,6 +47,8 @@ class TB(Module):
             ("branch", 3),
             ("trigger", 1),
             ("reset", 1),
+            ("go2_in", 1),
+            ("go2_out", 1),
             ]
 
     def __init__(self, mem=None):

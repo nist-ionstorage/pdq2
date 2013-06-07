@@ -61,14 +61,14 @@ class Ft245r_rx(Module):
         self.comb += pads.rd_out.eq(~pads.rdl)
 
         actions = {
-                "RESET": [
-                    If(t < (1<<6)-1, # 20
+                states["RESET"]: [
+                    If(t < (1<<6)-1, # FIXME 20
                         t.eq(t + 1),
                     ).Else(
                         t.eq(0),
                         state.eq(states["FILL"]),
                     )],
-                "FILL": [
+                states["FILL"]: [
                     If(t < 3,
                         t.eq(t + 1),
                     ).Else(
@@ -76,10 +76,10 @@ class Ft245r_rx(Module):
                             t.eq(0),
                             state.eq(states["SETUP"]),
                         ).Elif(~pads.rxfl, # master only
-                            pads.rdl.eq(0), # master ronly
+                            pads.rdl.eq(0), # master ronly, need to wait one cycle
                         ),
                     )],
-                "SETUP": [
+                states["SETUP"]: [
                     If(t < 3,
                         t.eq(t + 1),
                     ).Else(
@@ -89,13 +89,12 @@ class Ft245r_rx(Module):
                         t.eq(0),
                         state.eq(states["HOLD"]),
                     )],
-                "HOLD": [
+                states["HOLD"]: [
                     If(self.data_out.ack,
                         self.data_out.stb.eq(0),
                         state.eq(states["FILL"]),
                     )],
                 }
-        actions = dict((states[k], _) for k, _ in actions.items())
         self.sync += Case(state, actions)
 
 
@@ -226,9 +225,9 @@ class Parser2(Module):
         self.comb += dev_adr.eq(adr[8:][:flen(self.adr)])
         dac_adr = Signal(2)
         self.comb += dac_adr.eq(adr[:flen(dac_adr)])
-        data_len = Signal(16)
         listen = Signal()
-        self.comb += listen.eq(adr[8:8+flen(self.adr)] == self.adr)
+        self.comb += listen.eq(dev_adr == self.adr)
+        data_len = Signal(16)
         mem_adr = Signal(16)
         self.comb += [mem.adr.eq(mem_adr[:flen(mem.adr)]) for mem in mems]
         mem_dat = Signal(16)
@@ -239,16 +238,20 @@ class Parser2(Module):
         states = dict((v, i) for i, v in enumerate(states))
         state = Signal(max=len(states))
  
+        self.comb += self.data_in.ack.eq(1) # can always accept
         data = self.data_in.payload.data
-        self.comb += self.data_in.ack.eq(1)
         actions = {
-                "DEV_ADR": [we.eq(0), adr.eq(data),
+                states["DEV_ADR"]: [
+                    we.eq(0),
+                    adr.eq(data),
                     state.eq(states["DATA_LEN"])],
-                "DATA_LEN": [data_len.eq(data),
+                states["DATA_LEN"]: [
+                    data_len.eq(data),
                     state.eq(states["MEM_ADR"])],
-                "MEM_ADR": [mem_adr.eq(data),
+                states["MEM_ADR"]: [
+                    mem_adr.eq(data),
                     state.eq(states["DATA"])],
-                "DATA": [
+                states["DATA"]: [
                     mem_dat.eq(data),
                     mem_adr.eq(mem_adr + 1),
                     data_len.eq(data_len - 1),
@@ -259,7 +262,6 @@ class Parser2(Module):
                         state.eq(states["DEV_ADR"]),
                     )],
                 }
-        actions = dict((states[k], _) for k, _ in actions.items())
         self.sync += If(self.data_in.stb & self.data_in.ack,
                 Case(state, actions),
                 )
@@ -284,3 +286,8 @@ class Comm(Module):
             self.parser = Parser2(dacs)
             g.add_connection(cast, self.parser)
         self.submodules += CompositeActor(g) 
+
+        self.comb += self.parser.adr.eq(pads.adr)
+        self.comb += pads.reset.eq(self.reader.reset)
+        self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
+
