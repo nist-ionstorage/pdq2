@@ -80,15 +80,12 @@ def main():
     pdq.Ftdi = pdq.FileFtdi
 
     t = np.linspace(0, 3e-6, 11)
-    v = [None] * 8
-    v[1] = (1-np.cos(t/t[-1]*np.pi))/2
+    v = (1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq("top_test")
-    #p.prepare_simple(t, v, channel=4, mode=3, trigger=False)
-    p.dev.fil.close()
-    fil = "pdq_top_test_ftdi.bin"
-    mem = np.fromstring(
-            open(fil, "rb").read(),
-            dtype=np.uint8)
+    mem = bytes([0x01, 0x00]) + \
+            p.serialize_frame(t, v, derivatives=3,
+            trigger=True, next_frame=1, repeat=2)
+    mem = np.fromstring(mem, "u1")
 
     n = 3000
     tb = TB(mem)
@@ -96,7 +93,7 @@ def main():
     sim.run(n)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/50e6
-    plt.plot(t, v[1])
+    plt.plot(t, v)
     plt.plot(tim, out)
     plt.show()
 
