@@ -125,7 +125,7 @@ class MemWriter(Module):
         board_adr = Signal(4)
         self.comb += board_adr.eq(dev_adr[:flen(self.adr)])
         dac_adr = Signal(2)
-        self.comb += dac_adr.eq(dev_adr[8:][:flen(dac_adr)])
+        self.comb += dac_adr.eq(dev_adr[8:8+flen(dac_adr)])
         listen = Signal()
         self.comb += listen.eq(board_adr == self.adr)
         data_len = Signal(16)
