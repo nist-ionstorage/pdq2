@@ -55,6 +55,7 @@ except ImportError:
         Ftdi = FileFtdi
 
 
+
 class Pdq(object):
     """
     PDQ DAC (a.k.a. QC_Waveform)
@@ -62,24 +63,129 @@ class Pdq(object):
     range = (1<<15)-1 # signed 16 bit DAC
     scale = range/10. # LSB/V
     freq = 50e6 # samples/s
-    min_time = 12 # processing time for a mode=3 point
+    min_time = 11 # processing time for a mode=3 point
     max_time = range # signed 16 bit timer
-    num_branches = 8
     num_fpgas = 3
     num_dacs = 3
-    max_data = 6*(1<<10) # 6144 data buffer size per channel
+    max_data = 4*(1<<10) # 6144 data buffer size per channel
 
     def __init__(self, serial=None):
         self.dev = Ftdi(serial)
 
+        #   MODE:
+        #       NEXT_LINE 8
+        #       REPEAT 8
+        #   LENGTH
+        #   FRAME ... FRAME
+        # FRAME:
+        #   HEADER: 
+        #     TYP 4
+        #     WAIT 1
+        #     FORCE 1
+        #     DT_SHIFT 4
+        #     RESERVED 6
+        #   DT 16
+        #   V0 16
+        #   V1 32
+        #   V2 48
+        #   V3 48
+
+    def mem_header(self, board, channel, mem_adr, length):
+        assert channel in range(self.num_dacs)
+        assert board in range(self.num_boards)
+        head = struct.pack("<B B H H", board, channel, mem_adr,
+                length/2)
+        logging.debug("header len %i", len(head))
+        logging.debug("header %r", head)
+        return head
+
+    def set_interrupt(self, board, channel, interrupt, addr):
+        return self.write(mem_header(board, channel, interrupt, 1) + 
+                struct.pack("<H", addr))
+
+    @staticmethod
+    def interpolate(times, voltages, mode):
+        """
+        calculate b-spframe interpolation derivatives for voltage data
+        according to interpolation mode
+        returns times, voltages and derivatives suitable for passing to
+        serialize_branch()
+        also removes the first times point (implicitly shifts to 0) and
+        the last voltages/derivatives (irrelevant since the section ends
+        here) and sets the pause/trigger marker on the last point
+        as desired by the fpga
+        """
+        derivatives = ()
+        if mode in (1, 2, 3):
+            spframe = interpolate.splrep(times, voltages, s=0, k=mode)
+            derivatives = [interpolate.splev(times[:-1], spframe, der=i+1)
+                    for i in range(mode)]
+        voltages = voltages[:-1]
+        times = times[1:]
+        return times, voltages, derivatives
+
+    def serialize_frame(self, times, voltages, derivatives=None,
+            trigger=True, next_frame=0, repeat=1):
+        """
+        serialize channel branch data into buffer
+        voltages in volts, times in seconds,
+        derivatives according to chosen interpolation mode
+        """
+        if type(derivatives) is type(1):
+            times, voltages, derivatives = self.interpolate(times,
+                    voltages, derivatives)
+        frame = []
+
+        head = np.zeros((len(times),), "u2")
+        head[:] = (len(derivatives)<<0)
+        head[-1] |= trigger<<4
+        head[:] |= 0<<6 # shift
+        frame.append(head)
+
+        dt = np.diff(np.r_[0, times])*self.freq
+        # FIXME: shift
+        # FIXME: clipped intervals cumulatively skew
+        # subsequent ones
+        np.clip(dt, self.min_time, self.max_time, out=dt)
+        frame.append(dt.astype("i2"))
+
+        scale = self.scale
+        v0 = voltages*scale
+        # np.clip(v0, -self.range, self.range, out=voltages)
+        frame.append(v0.astype("i2"))
+
+        if len(derivatives) >= 1:
+            scale *= (1<<16)/self.freq
+            v1 = (scale*derivatives[0]).astype("i4")
+            frame.append(v1)
+
+        if len(derivatives) >= 2:
+            scale *= (1<<16)/self.freq
+            # no i6 dtype
+            v2 = (scale*derivatives[1]).astype("i8")
+            frame.append(v2.astype("i4"))
+            frame.append((v2>>32).astype("i2"))
+
+        if len(derivatives) >= 3:
+            scale *= 1/self.freq
+            v3 = (scale*derivatives[2]).astype("i8")
+            frame.append(v3.astype("i4"))
+            frame.append((v3>>32).astype("i2"))
+
+        frame = np.rec.fromarrays(frame, byteorder="<") # interleave
+        data = bytes(frame.data)
+        if len(derivatives) == 3: # mode == 3:
+            assert len(data)/2 == (2+2+2+4+6+6)/2*len(voltages), (
+                  len(voltages), len(data))
+        logging.debug("frame shape %s len %i", frame.shape,
+                len(data))
+        logging.debug("frame dtype %s", frame.dtype)
+        logging.debug("frame %s", frame)
+        #logging.debug("frame raw %s", repr(data))
+        head = struct.pack("<B B H", next_frame, repeat, frame.shape[0])
+        return head + data # memory buffer
+
     def serialize_header(self, channel, mode, trigger, branch_lens):
-        """
-        serialize the channel data header into a string
-        """
-        assert channel in range(self.num_fpgas*self.num_dacs)
-        assert mode in range(4)
-        assert len(branch_lens) == self.num_branches
-        fpga, dac = divmod(channel, self.num_dacs)
         branch_ends = list(np.cumsum(branch_lens))
         # branch 7 always takes all data (0:end not
         # branch_end[-2]:branch_end[-1])
@@ -95,65 +201,10 @@ class Pdq(object):
         head += struct.pack("<B H", 0x01, data_len) # burst_len
         head += struct.pack("<B", 0x04) # burst data follows
         # head += struct.pack("<B", 0x03) # single data follows
-
         logging.debug("header len %i", len(head))
         logging.debug("header %r", head)
-
         return head
-
-    def serialize_branch(self, voltages, times=None, *derivatives):
-        """
-        serialize channel branch data into buffer
-        voltages in volts, times in seconds,
-        derivatives according to chosen interpolation mode
-        """
-        branch = []
-
-        scale = self.scale
-        voltages = voltages*scale
-        # np.clip(voltages, -self.range, self.range, out=voltages)
-        branch.append(voltages.astype("i2"))
-
-        if times is not None:
-            dtimes = np.diff(np.r_[0, np.fabs(times)])*self.freq
-            # FIXME: min_time=100 for mode 1,2?
-            # FIXME: clipped intervals cumulatively skew
-            # subsequent ones
-            np.clip(dtimes, self.min_time, self.max_time, out=dtimes)
-            # add the sign back in
-            branch.append((np.sign(times)*dtimes).astype("i2"))
-
-        if len(derivatives) >= 1:
-            scale *= (1<<16)/self.freq
-            deriv1 = (scale*derivatives[0]).astype("i4")
-            branch.append(deriv1)
-
-        if len(derivatives) >= 2:
-            scale *= (1<<16)/self.freq
-            # no i6 dtype
-            deriv2 = (scale*derivatives[1]).astype("i8")
-            branch.append(deriv2.astype("i4"))
-            branch.append((deriv2>>32).astype("i2"))
-
-        if len(derivatives) >= 3:
-            scale *= 1/self.freq
-            deriv3 = (scale*derivatives[2]).astype("i8")
-            branch.append(deriv3.astype("i4"))
-            branch.append((deriv3>>32).astype("i2"))
-
-        branch = np.rec.fromarrays(branch, byteorder="<") # interleave
-        data = bytes(branch.data)
-        if len(derivatives) == 3: # mode == 3:
-            assert len(data)/2 == (2+2+4+6+6)/2*len(voltages), (
-                  len(voltages), len(data))
-        logging.debug("branch shape %s len %i", branch.shape,
-                len(data))
-        logging.debug("branch dtype %s", branch.dtype)
-        logging.debug("branch %s", branch)
-        #logging.debug("branch raw %s", repr(data))
-
-        return data # memory buffer
-    
+   
     def write(self, *segments):
         """
         writes segments to device
@@ -165,36 +216,10 @@ class Pdq(object):
             if written < len(segment):
                 logging.error("wrote only %i of %i", written, len(segment))
 
-    @staticmethod
-    def interpolate(times, voltages, mode):
-        """
-        calculate b-spline interpolation derivatives for voltage data
-        according to interpolation mode
-        returns times, voltages and derivatives suitable for passing to
-        serialize_branch()
-        also removes the first times point (implicitly shifts to 0) and
-        the last voltages/derivatives (irrelevant since the section ends
-        here) and sets the pause/trigger marker on the last point
-        as desired by the fpga
-        """
-        derivatives = ()
-        if mode in (2, 3):
-            spline = interpolate.splrep(times, voltages, s=0, k=mode)
-            derivatives = [interpolate.splev(times[:-1], spline, der=i+1)
-                    for i in range(mode)]
-        voltages = voltages[:-1]
-        if mode == 0:
-            times = None
-        else:
-            times = times[1:]-times[0]
-            times[-1] *= -1 # end/trigger marker
-        return times, voltages, derivatives
-
-    def prepare_simple(self, times, voltages, channel, mode=3,
+    def write_simple(self, times, voltages, channel, mode=3,
             trigger=True):
         """
-        interpolate, serialize and upload multi-branch, single-section
-        data for one channel
+        interpolate, serialize and upload 8 irq data for one channel
         """
         assert len(voltages) == 8
         data = []
@@ -257,10 +282,10 @@ def main():
     if args.plot:
         from matplotlib import pyplot as plt
         times -= times[0]
-        spline = interpolate.splrep(times, voltages,
+        spframe = interpolate.splrep(times, voltages,
                 s=0, k=args.mode)
         ttimes = np.arange(0, times[-1], 1/Pdq.freq)
-        vvoltages = interpolate.splev(ttimes, spline, der=0)
+        vvoltages = interpolate.splev(ttimes, spframe, der=0)
         fig, ax0 = plt.subplots()
         ax0.plot(times, voltages, "xk", label="points")
         ax0.plot(ttimes, vvoltages, ",b", label="interpolation")

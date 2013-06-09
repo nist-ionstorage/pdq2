@@ -111,12 +111,12 @@ class SimReader(SimActor):
 
 mem_layout = [("data", 16)]
 
-class Parser(Module):
+class MemWriter(Module):
     def __init__(self, dacs):
         self.data_in = Sink(mem_layout)
         self.busy = Signal()
         self.comb += self.busy.eq(~self.data_in.ack)
-        mems = [dac.reader.mem.get_port(write_capable=True) for dac in dacs]
+        mems = [dac.parser.mem.get_port(write_capable=True) for dac in dacs]
         self.specials += mems
        
         self.adr = Signal(4)
@@ -180,10 +180,10 @@ class Comm(Module):
         g.add_connection(self.reader, pack)
         cast = Cast(pack_layout(data_layout, 2), mem_layout)
         g.add_connection(pack, cast)
-        self.parser = Parser(dacs)
-        g.add_connection(cast, self.parser)
+        self.memwriter = MemWriter(dacs)
+        g.add_connection(cast, self.memwriter)
         self.submodules += CompositeActor(g) 
 
-        self.comb += self.parser.adr.eq(pads.adr)
+        self.comb += self.memwriter.adr.eq(pads.adr)
         self.comb += pads.reset.eq(self.reader.reset)
         self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop

@@ -57,17 +57,17 @@ class TB(Module):
             dac = Dac()
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)
-            dac.reader.mem.init = [0] * dac.reader.mem.depth
+            dac.parser.mem.init = [0] * dac.parser.mem.depth
         self.pads = Record(self.tb_pads)
         self.submodules.comm = Comm(self.pads, dacs, mem)
         self.submodules.ctrl = Ctrl(self.pads, dacs)
-        self.comb += self.comm.parser.adr.eq(self.pads.adr)
+        self.comb += self.comm.memwriter.adr.eq(self.pads.adr)
         self.outputs = []
 
     def do_simulation(self, s):
         if s.cycle_counter == 0:
             s.wr(self.pads.branch, 1)
-            s.wr(self.comm.parser.adr, 1)
+            s.wr(self.comm.memwriter.adr, 1)
             # s.wr(self.pads.trigger, 1)
         self.outputs.append(s.rd(self.dac1.out.data))
 
@@ -84,7 +84,7 @@ def main():
     v = [None] * 8
     v[1] = (1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq("top_test")
-    p.prepare_simple(t, v, channel=4, mode=3, trigger=False)
+    #p.prepare_simple(t, v, channel=4, mode=3, trigger=False)
     p.dev.fil.close()
     fil = "pdq_top_test_ftdi.bin"
     mem = np.fromstring(

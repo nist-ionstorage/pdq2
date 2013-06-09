@@ -5,7 +5,7 @@ from migen.flow.actor import Source, Sink
 from migen.flow.network import CompositeActor, DataFlowGraph
 
 
-frame_layout = [
+line_layout = [
         ("typ", 4),
         ("wait", 1),
         ("force", 1),
@@ -19,32 +19,35 @@ frame_layout = [
         ]
 
 
-class DacReader(Module):
+class Parser(Module):
     def __init__(self, mem_data_width=16, mem_adr_width=16,
             mem_depth=4*(1<<10)): # XC3S500E: 20BRAMS 18bits 1024loc
         self.specials.mem = Memory(width=mem_data_width, depth=mem_depth)
         read = self.mem.get_port()
         self.specials.read = read
 
-        self.frame_out = Source(frame_layout)
-        fp = self.frame_out.payload
+        self.line_out = Source(line_layout)
+        fp = self.line_out.payload
         self.busy = Signal()
-        self.comb += self.busy.eq(~self.frame_out.stb)
+        self.comb += self.busy.eq(~self.line_out.stb)
 
         # MEM:
-        #   HEADER
-        #   LINE ... LINE
-        # HEADER:
-        #   IRQ0 ... IRQ7
-        #   OTHER_LINE_ADRS
-        # LINE:
-        #   MODE:
-        #       NEXT_LINE 8
-        #       REPEAT 8
-        #   LENGTH
-        #   FRAME ... FRAME
+        #   IRQ0_ADR 16
+        #   ...
+        #   IRQ7_ADR 16
+        #   JUMP_ADR 16
+        #   ...
+        #   FRAME
+        #   ...
         # FRAME:
-        #   HEADER: 
+        #   MODE 16:
+        #       NEXT_FRAME 8
+        #       REPEAT 8
+        #   LENGTH 16
+        #   LINE
+        #   ...
+        # LINE:
+        #   HEADER 16:
         #     TYP 4
         #     WAIT 1
         #     FORCE 1
@@ -52,26 +55,16 @@ class DacReader(Module):
         #     RESERVED 6
         #   DT 16
         #   V0 16
-        #   V1 32
-        #   V2 48
-        #   V3 48
+        #   (V1 32)
+        #   (V2 48)
+        #   (V3 48)
 
         repeat = Signal(8)
-        next_line = Signal(8)
-        mode = Cat(next_line, repeat)
+        next_frame = Signal(8)
+        mode = Cat(next_frame, repeat)
         length = Signal(16)
 
-        interrupt = Signal(4)
-        self.interrupt = interrupt
-        save_interrupt = Signal(4)
-        self.sync += If(interrupt != save_interrupt,
-                    next_line.eq(interrupt),
-                    save_interrupt.eq(interrupt),
-                )
-
-        header = Signal(16)
-        self.comb += Cat(fp.typ, fp.wait, fp.force,
-                fp.shift, fp.reserved).eq(header)
+        header = Cat(fp.typ, fp.wait, fp.force, fp.shift, fp.reserved)
 
         states = dict((v, i) for i, v in enumerate("WAIT0 IRQ WAIT1 "
             "MODE LENGTH HEADER "
@@ -105,81 +98,97 @@ class DacReader(Module):
                 for i, (st, reg, inc) in enumerate(read_seq[:-1]))
 
         save_data = Signal(16)
+        delayed = Signal()
+        complete = Signal()
+        self.comb += complete.eq(self.line_out.stb &
+                self.line_out.ack)
         seq_actions[states["HEADER"]] = [ # override
-                save_data.eq(read.dat_r),
-                If(self.frame_out.stb, # sending
-                    If(~self.frame_out.ack, # not sent
-                        save_data.eq(save_data), # keep
-                        state.eq(states["HEADER"]),
-                    ).Else( # sent with delay
-                        read.adr.eq(read.adr + 1),
-                        header.eq(save_data), # kept
-                        state.eq(states["DT"]),
-                    )
-                ).Else( # already sent
+                If(self.line_out.stb & ~self.line_out.ack & ~delayed,
+                    # first delayed sending cycle
+                    save_data.eq(read.dat_r), # keep this, adr has advanceed
+                    delayed.eq(1),
+                ),
+                If(complete | ~self.line_out.stb, # sent
+                    If(delayed,
+                        header.eq(save_data), # use kept
+                    ).Else(
+                        header.eq(read.dat_r), # use current
+                    ),
+                    delayed.eq(0),
                     read.adr.eq(read.adr + 1),
-                    header.eq(read.dat_r),
                     state.eq(states["DT"]),
                 )]
         self.sync += Case(state, seq_actions)
         
-        cur_line = Signal(4)
+        cur_frame = Signal(4)
+        repetitions = Signal(8)
+        interrupt = Signal(4)
+        self.interrupt = interrupt
+        save_interrupt = Signal(4)
 
         short_send = "V0 V1A V2B V3B".split()
-        self.sync += [
-            If(optree("|", [
+        line_ready = Signal()
+        self.comb += line_ready.eq(optree("|", [
                     (state == states[st]) & (fp.typ == j)
-                    for j, st in enumerate(short_send)]),
-                self.frame_out.stb.eq(1),
+                    for j, st in enumerate(short_send)]))
+        self.sync += [
+            If(line_ready,
+                self.line_out.stb.eq(1),
                 length.eq(length - 1),
-                If(length <= 1,
-                    repeat.eq(repeat - 1),
-                    If(repeat <= 1,
-                        cur_line.eq(next_line),
-                        read.adr.eq(next_line),
+                If(interrupt != save_interrupt,
+                    read.adr.eq(interrupt),
+                    save_interrupt.eq(interrupt),
+                    state.eq(states["WAIT0"]),
+                    fp.force.eq(1), # ?
+                ).Elif(length <= 1,
+                    If(repetitions >= repeat,
+                        repetitions.eq(1),
+                        read.adr.eq(next_frame),
+                        cur_frame.eq(next_frame),
                     ).Else(
-                        read.adr.eq(cur_line),
+                        repetitions.eq(repetitions + 1),
+                        read.adr.eq(cur_frame),
                     ),
                     state.eq(states["WAIT0"]),
                 ).Else(
-                    If(self.frame_out.ack,
-                        read.adr.eq(read.adr + 1),
-                    ),
                     state.eq(states["HEADER"]),
                 )
             ),
-            If(self.frame_out.stb & self.frame_out.ack,
-                self.frame_out.stb.eq(0),
+            If(complete,
+                self.line_out.stb.eq(0),
             ),
             ]
 
 
 class DacOut(Module):
     def __init__(self):
-        self.frame_in = Sink(frame_layout)
-        frame = Record(frame_layout)
-        self.frame = frame
+        self.line_in = Sink(line_layout)
+        line = Record(line_layout)
+        self.line = line
         self.busy = Signal()
-        self.comb += self.busy.eq(~self.frame_in.ack)
+        self.comb += self.busy.eq(~self.line_in.ack)
 
         self.trigger = Signal()
         self.data = Signal(16)
-        self.comb += self.data.eq(frame.v0[-16:])
-        self.comb += self.frame_in.ack.eq((frame.dt <= 1) &
-                (self.frame_in.payload.force | self.trigger | ~frame.wait))
-        t_dec = Signal(16)
+        self.comb += self.data.eq(line.v0[-16:])
+        dt_dec = Signal(16)
+        line_dt_dec = Signal(16)
+        self.comb += self.line_in.ack.eq((line.dt <= 1) & (dt_dec <= 1) &
+                (self.line_in.payload.force | self.trigger | ~line.wait))
         self.sync += [
-                If(t_dec > 1,
-                    t_dec.eq(t_dec - 1),
+                If(dt_dec > 1,
+                    dt_dec.eq(dt_dec - 1),
                 ).Else(
-                    If(frame.dt > 1,
-                        frame.v0.eq(frame.v0 + frame.v1),
-                        frame.v1.eq(frame.v1 + frame.v2),
-                        frame.v2.eq(frame.v2 + frame.v3),
-                        frame.dt.eq(frame.dt - 1),
-                    ).Elif(self.frame_in.stb & self.frame_in.ack,
-                        frame.eq(self.frame_in.payload),
-                        t_dec.eq(1<<self.frame_in.payload.shift),
+                    If(line.dt > 1,
+                        line.v0.eq(line.v0 + line.v1),
+                        line.v1.eq(line.v1 + line.v2),
+                        line.v2.eq(line.v2 + line.v3),
+                        line.dt.eq(line.dt - 1),
+                        dt_dec.eq(line_dt_dec),
+                    ).Elif(self.line_in.stb & self.line_in.ack,
+                        line.eq(self.line_in.payload),
+                        dt_dec.eq(1<<self.line_in.payload.shift),
+                        line_dt_dec.eq(1<<self.line_in.payload.shift),
                     ),
                 ),
                 ]
@@ -187,10 +196,10 @@ class DacOut(Module):
 
 class Dac(Module):
     def __init__(self, **kwargs):
-        self.reader = DacReader(**kwargs)
+        self.parser = Parser(**kwargs)
         self.out = DacOut()
         g = DataFlowGraph()
-        g.add_connection(self.reader, self.out)
+        g.add_connection(self.parser, self.out)
         self.submodules.graph = CompositeActor(g)
 
 
@@ -198,51 +207,52 @@ class TB(Module):
     def __init__(self, mem=None):
         self.submodules.dac = Dac()
         if mem is not None:
-            self.dac.reader.mem.init = mem
+            self.dac.parser.mem.init = mem
         self.outputs = []
 
     def do_simulation(self, s):
         self.outputs.append(s.rd(self.dac.out.data))
-        if s.cycle_counter == 0:
+        #if s.cycle_counter == 0:
+        #    s.wr(self.dac.parser.interrupt, 2)
+        if s.cycle_counter == 100:
             s.wr(self.dac.out.trigger, 1)
-            s.wr(self.dac.reader.interrupt, 1)
-        if (s.rd(self.dac.out.frame_in.ack) and
-                s.rd(self.dac.out.frame_in.stb)):
-            f = self.dac.out.frame
-            print("frame {} {}".format(s.rd(f.dt), s.rd(f.v0)))
+        #if s.cycle_counter == 200:
+        #    s.wr(self.dac.parser.interrupt, 0)
+        if (s.rd(self.dac.out.line_in.ack) and
+                s.rd(self.dac.out.line_in.stb)):
+            f = self.dac.out.line
+            print("line {} {}".format(s.rd(f.dt), s.rd(f.v0)))
 
 
 def main():
+    from migen.fhdl import verilog
     from migen.sim.generic import Simulator, TopLevel
     from migen.actorlib import sim
     from matplotlib import pyplot as plt
     import numpy as np
     from scipy import interpolate
     import pdq
-    pdq.Ftdi = pdq.FileFtdi
 
-    t = np.arange(0, 6) * .25e-6
-    v = [None] * 8
-    v[1] = (1-np.cos(t/t[-1]*np.pi))/2
+    #print(verilog.convert(Dac()))
+
+    t = np.arange(0, 6) * .28e-6
+    v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq("dac_test")
-    p.prepare_simple(t, v, channel=4, mode=3, trigger=True)
-    p.dev.fil.close()
-    fil = "pdq_dac_test_ftdi.bin"
-    skip = 37
-    mem = np.fromstring(
-            open(fil, "rb").read()[skip:],
-            dtype=np.dtype("<u2"))
+    mem = bytes([0x01, 0x00]) + \
+            p.serialize_frame(t, v, derivatives=3,
+            trigger=True, next_frame=1, repeat=2)
+    mem = np.fromstring(mem, "<u2")
 
     tb = TB(mem)
     sim = Simulator(tb, TopLevel("dac.vcd"))
-    n = 200
+    n = 400
     sim.run(n)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/50e6
-    spline = interpolate.splrep(t, v[1], s=0, k=3)
+    spframe = interpolate.splrep(t, v, s=0, k=3)
     tt = np.arange(t[0], t[-1], 1/p.freq)
-    vv = interpolate.splev(tt, spline, der=0)
-    plt.plot(t, v[1], "xk")
+    vv = interpolate.splev(tt, spframe, der=0)
+    plt.plot(t, v, "xk")
     plt.plot(tt, vv, ",g")
     plt.plot(tim-12/50e6, out, "-r")
     plt.show()
