@@ -6,6 +6,8 @@ from migen.actorlib.sim import SimActor
 from migen.actorlib.structuring import Cast, Pack, pack_layout
 from migen.flow.network import DataFlowGraph, CompositeActor
 
+from escape import Unescaper
+
 
 class SimFt245r_rx(Module):
     def __init__(self, pads, data):
@@ -108,12 +110,13 @@ class SimReader(SimActor):
             yield Token("data_out", {"data": msg})
 
 
-
 mem_layout = [("data", 16)]
+
 
 class MemWriter(Module):
     def __init__(self, dacs):
         self.data_in = Sink(mem_layout)
+        self.command_in = Sink(data_layout)
         self.busy = Signal()
         self.comb += self.busy.eq(~self.data_in.ack)
         mems = [dac.parser.mem.get_port(write_capable=True) for dac in dacs]
@@ -175,15 +178,18 @@ class Comm(Module):
             mem = list(mem)
             self.submodules.simin = SimFt245r_rx(pads, mem)
             #self.reader = SimReader(mem)
-        self.reader = Ft245r_rx(pads)
+        reader = Ft245r_rx(pads)
+        unescaper = Unescaper(data_layout, 0x5a)
+        g.add_connection(reader, unescaper)
         pack = Pack(data_layout, 2)
-        g.add_connection(self.reader, pack)
+        g.add_connection(unescaper, pack, "oa", None)
         cast = Cast(pack_layout(data_layout, 2), mem_layout)
         g.add_connection(pack, cast)
-        self.memwriter = MemWriter(dacs)
-        g.add_connection(cast, self.memwriter)
+        memwriter = MemWriter(dacs)
+        g.add_connection(cast, memwriter, None, "data_in")
+        g.add_connection(unescaper, memwriter, "ob", "command_in")
         self.submodules += CompositeActor(g) 
 
-        self.comb += self.memwriter.adr.eq(pads.adr)
-        self.comb += pads.reset.eq(self.reader.reset)
+        self.comb += memwriter.adr.eq(pads.adr)
+        self.comb += pads.reset.eq(reader.reset)
         self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop

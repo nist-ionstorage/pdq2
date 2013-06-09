@@ -44,7 +44,7 @@ class TB(Module):
             ("data", 8),
             ("adr", 4),
             ("aux", 1),
-            ("branch", 3),
+            ("interrupt", 3),
             ("trigger", 1),
             ("reset", 1),
             ("go2_in", 1),
@@ -61,13 +61,12 @@ class TB(Module):
         self.pads = Record(self.tb_pads)
         self.submodules.comm = Comm(self.pads, dacs, mem)
         self.submodules.ctrl = Ctrl(self.pads, dacs)
-        self.comb += self.comm.memwriter.adr.eq(self.pads.adr)
         self.outputs = []
 
     def do_simulation(self, s):
         if s.cycle_counter == 0:
-            s.wr(self.pads.branch, 1)
-            s.wr(self.comm.memwriter.adr, 1)
+            s.wr(self.pads.interrupt, 1)
+            s.wr(self.pads.adr, 1)
             # s.wr(self.pads.trigger, 1)
         self.outputs.append(s.rd(self.dac1.out.data))
 

@@ -24,7 +24,7 @@ _io = [
 
         ("ctrl", 0,
             Subsignal("trigger", Pins("P110")), #wave_trigger F1 
-            Subsignal("branch", Pins(*"P118 P124 P98".split())), #F2 F3 F4
+            Subsignal("interrupt", Pins(*"P118 P124 P98".split())), #F2 F3 F4
             Subsignal("aux", Pins("P99")), #F5 out
             IOStandard("LVCMOS25")
             ),
