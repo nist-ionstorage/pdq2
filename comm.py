@@ -108,109 +108,10 @@ class SimReader(SimActor):
             yield Token("data_out", {"data": msg})
 
 
-class Parser(Module):
-    def __init__(self, dacs):
-        self.data_in = Sink(data_layout)
-        self.busy = Signal()
-        self.comb += self.busy.eq(~self.data_in.ack)
-        mems = [dac.reader.mem.get_port(write_capable=True) for dac in dacs]
-        self.specials += mems
-
-        states = "CMD ARG1 ARG2 PARSE".split()
-        states = dict((v, i) for i, v in enumerate(states))
-        state = Signal(max=len(states))
-
-        cmds = {
-            "DEV_ADR": 0x00,
-            "DATA_LENGTH": 0x01,
-            "MEM_ADR": 0x02,
-            "SINGLE": 0x03,
-            "BURST": 0x04,
-            "MEM_LENGTH": 0x06,
-            "MODE": 0x08,
-            "DAC0": 0x10,
-            "DAC1": 0x11,
-            "DAC2": 0x12,
-            "BRANCH0": 0x20,
-            "BRANCH1": 0x21,
-            "BRANCH2": 0x22,
-            "BRANCH3": 0x23,
-            "BRANCH4": 0x24,
-            "BRANCH5": 0x25,
-            "BRANCH6": 0x26,
-        }
-
-        cmd = Signal(8)
-        arg = Signal(16)
-        self.adr = Signal(4)
-        dev_adr = Signal(4)
-        listen = Signal()
-        self.sync += listen.eq((dev_adr == self.adr)
-                | (cmd == cmds["DEV_ADR"]))
-        length = Signal(16)
-        dac_adr = Signal(2)
-        mem_adr = Signal(16)
-        mem_dat = Signal(16)
-        self.comb += [mem.adr.eq(mem_adr[:flen(mem.adr)]) for mem in mems]
-        self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
-
-        we = Array(mem.we for mem in mems)[dac_adr]
-        order, freerun, branch_adrs = (Array(_)[dac_adr] for _ in zip(*[
-            (dac.reader.order, dac.reader.freerun, dac.reader.branch_adrs)
-            for dac in dacs]))
-
-        cmd_actions = {
-                # officially there are three separate DACX commands.
-                # here we trust that DEV_ADDR and the DACX command
-                # will come in pairs.
-                "DEV_ADR": [dev_adr.eq(arg[8:12]), dac_adr.eq(arg[:2])],
-                "DATA_LENGTH": [length.eq(arg)],
-                "MEM_ADR": [mem_adr.eq(arg)],
-                "MEM_LENGTH": [branch_adrs[7].eq(arg)],
-                "MODE": [order.eq(arg[:2]), freerun.eq(~arg[8])],
-                "SINGLE": [mem_dat[:16].eq(arg), we.eq(1)],
-                "BURST": [mem_dat[:16].eq(arg), we.eq(1),
-                    If(length,
-                        length.eq(length - 1),
-                        state.eq(states["ARG1"]),
-                    )],
-                }
-        for i in range(7):
-            cmd_actions["BRANCH{}".format(i)] = [branch_adrs[i].eq(arg)]
-        cmd_actions = dict((cmds[k], _) for k, _ in cmd_actions.items())
-
-        pd = self.data_in.payload.data 
-
-        ack_read_next = lambda reg, next: [
-                If(we,
-                    we.eq(0),
-                    mem_adr.eq(mem_adr + 1),
-                ),
-                # this being only clk/2 max speed does not matter since
-                # the source is even slower (clk/50)
-                self.data_in.ack.eq(1),
-                If(self.data_in.stb & self.data_in.ack,
-                    self.data_in.ack.eq(0),
-                    reg.eq(pd),
-                    state.eq(states[next]),
-                )]
-
-        read_actions = {
-                "CMD": ack_read_next(cmd, "ARG1"),
-                "ARG1": ack_read_next(arg[:8], "ARG2"),
-                "ARG2": ack_read_next(arg[8:], "PARSE"),
-                "PARSE": [state.eq(states["CMD"]),
-                    If(listen,
-                        Case(cmd, cmd_actions),
-                    )],
-                }
-        read_actions = dict((states[k], _) for k, _ in read_actions.items())
-        self.sync += Case(state, read_actions)
-
 
 mem_layout = [("data", 16)]
 
-class Parser2(Module):
+class Parser(Module):
     def __init__(self, dacs):
         self.data_in = Sink(mem_layout)
         self.busy = Signal()
@@ -220,13 +121,13 @@ class Parser2(Module):
        
         self.adr = Signal(4)
 
-        adr = Signal(16)
-        dev_adr = Signal(4)
-        self.comb += dev_adr.eq(adr[8:][:flen(self.adr)])
+        dev_adr = Signal(16)
+        board_adr = Signal(4)
+        self.comb += board_adr.eq(dev_adr[:flen(self.adr)])
         dac_adr = Signal(2)
-        self.comb += dac_adr.eq(adr[:flen(dac_adr)])
+        self.comb += dac_adr.eq(dev_adr[8:][:flen(dac_adr)])
         listen = Signal()
-        self.comb += listen.eq(dev_adr == self.adr)
+        self.comb += listen.eq(board_adr == self.adr)
         data_len = Signal(16)
         mem_adr = Signal(16)
         self.comb += [mem.adr.eq(mem_adr[:flen(mem.adr)]) for mem in mems]
@@ -243,7 +144,7 @@ class Parser2(Module):
         actions = {
                 states["DEV_ADR"]: [
                     we.eq(0),
-                    adr.eq(data),
+                    dev_adr.eq(data),
                     state.eq(states["DATA_LEN"])],
                 states["DATA_LEN"]: [
                     data_len.eq(data),
@@ -275,19 +176,14 @@ class Comm(Module):
             self.submodules.simin = SimFt245r_rx(pads, mem)
             #self.reader = SimReader(mem)
         self.reader = Ft245r_rx(pads)
-        if True: # old
-            self.parser = Parser(dacs)
-            g.add_connection(self.reader, self.parser)
-        else:
-            pack = Pack(data_layout, 2)
-            g.add_connection(self.reader, pack)
-            cast = Cast(pack_layout(data_layout, 2), mem_layout)
-            g.add_connection(pack, cast)
-            self.parser = Parser2(dacs)
-            g.add_connection(cast, self.parser)
+        pack = Pack(data_layout, 2)
+        g.add_connection(self.reader, pack)
+        cast = Cast(pack_layout(data_layout, 2), mem_layout)
+        g.add_connection(pack, cast)
+        self.parser = Parser(dacs)
+        g.add_connection(cast, self.parser)
         self.submodules += CompositeActor(g) 
 
         self.comb += self.parser.adr.eq(pads.adr)
         self.comb += pads.reset.eq(self.reader.reset)
         self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
-
