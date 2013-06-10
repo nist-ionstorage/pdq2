@@ -1,10 +1,5 @@
 from migen.fhdl.std import *
-from migen.genlib.record import Record
-from migen.flow.actor import Source, Sink
-from migen.flow.transactions import Token
-from migen.actorlib.sim import SimActor
-from migen.actorlib.structuring import Cast, Pack, pack_layout
-from migen.flow.network import DataFlowGraph, CompositeActor
+from migen.flow.actor import Source
 
 
 class SimFt245r_rx(Module):
@@ -45,45 +40,30 @@ data_layout = [("data", 8)]
 class Ft245r_rx(Module):
     def __init__(self, pads):
         self.data_out = Source(data_layout)
+        do = self.data_out
+        self.comb += do.payload.data.eq(pads.data)
 
-        pads.rdl.reset = 1
-
+        complete = Signal()
+        self.comb += complete.eq(do.stb & do.ack)
         self.busy = Signal()
-        self.comb += self.busy.eq(~self.data_out.stb)
+        self.comb += self.busy.eq(~do.stb | do.ack)
+        
+        self.comb += pads.rdl.eq(~pads.rd_out) # master to all, enslave this
 
-        states = "FILL SETUP HOLD".split()
-        states = dict((v, i) for i, v in enumerate(states))
-        state = Signal(max=len(states))
+        t = Signal(max=4)
 
-        t = Signal(max=3)
-        self.comb += pads.rd_out.eq(~pads.rdl)
+        self.sync += [
+                If(t < 3,
+                    t.eq(t + 1),
+                ).Elif(pads.rd_in, # master to all
+                    do.stb.eq(1),
+                ).Elif(~pads.rxfl, # master only
+                    pads.rd_out.eq(1), # master only
+                    t.eq(0),
+                ),
+                If(complete,
+                    do.stb.eq(0),
+                    pads.rd_out.eq(0), # master only
+                    t.eq(0),
+                )]
 
-        actions = {
-                states["FILL"]: [
-                    If(t < 3,
-                        t.eq(t + 1),
-                    ).Else(
-                        If(pads.rd_in, # from master to both
-                            t.eq(0),
-                            state.eq(states["SETUP"]),
-                        ).Elif(~pads.rxfl, # master only
-                            pads.rdl.eq(0), # master ronly, need to wait one cycle
-                        ),
-                    )],
-                states["SETUP"]: [
-                    If(t < 3,
-                        t.eq(t + 1),
-                    ).Else(
-                        self.data_out.payload.data.eq(pads.data),
-                        self.data_out.stb.eq(1),
-                        pads.rdl.eq(1), # master only
-                        t.eq(0),
-                        state.eq(states["HOLD"]),
-                    )],
-                states["HOLD"]: [
-                    If(self.data_out.ack,
-                        self.data_out.stb.eq(0),
-                        state.eq(states["FILL"]),
-                    )],
-                }
-        self.sync += Case(state, actions)

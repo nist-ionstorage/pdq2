@@ -12,9 +12,7 @@ _io = [
             Subsignal("adr", Pins(*"P32 P6 P14 P43".split())),
             Subsignal("rd_in", Pins("P159")), #GO_1
             Subsignal("rd_out", Pins("P102")), #G1
-            IOStandard("LVCMOS25")),
 
-        ("ctrl", 0,
             Subsignal("trigger", Pins("P110")), #F1 
             Subsignal("interrupt", Pins(*"P118 P124 P98".split())), #F2 F3 F4
             Subsignal("aux", Pins("P99")), #F5 out

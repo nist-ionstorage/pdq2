@@ -4,7 +4,6 @@ from migen.flow.actor import *
 
 from dac import Dac
 from comm import Comm
-from ctrl import Ctrl
 
 
 class Soc(Module):
@@ -32,7 +31,6 @@ class Soc(Module):
                         )
 
         self.submodules.comm = Comm(platform.request("comm"), dacs)
-        self.submodules.ctrl = Ctrl(platform.request("ctrl"), self.comm, dacs)
 
 
 class TB(Module):
@@ -43,8 +41,6 @@ class TB(Module):
             ("rd_out", 1),
             ("data", 8),
             ("adr", 4),
-            ]
-    ctrl_pads = [
             ("aux", 1),
             ("interrupt", 3),
             ("trigger", 1),
@@ -62,15 +58,13 @@ class TB(Module):
             dac.parser.mem.init = [0] * dac.parser.mem.depth
         self.comm_pads = Record(self.comm_pads)
         self.submodules.comm = Comm(self.comm_pads, dacs, mem)
-        self.ctrl_pads = Record(self.ctrl_pads)
-        self.submodules.ctrl = Ctrl(self.ctrl_pads, self.comm, dacs)
         self.outputs = []
 
     def do_simulation(self, s):
         if s.cycle_counter == 0:
-            s.wr(self.ctrl_pads.interrupt, 0)
+            s.wr(self.comm_pads.interrupt, 0)
             s.wr(self.comm_pads.adr, 1)
-            #s.wr(self.ctrl_pads.trigger, 1)
+            #s.wr(self.comm_pads.trigger, 1)
         self.outputs.append(s.rd(self.dac1.out.data))
 
 

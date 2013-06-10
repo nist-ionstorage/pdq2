@@ -1,2 +1,6 @@
 build
 __pycache__
+*.bin
+*.vcd
+*.sav
+*.pdf

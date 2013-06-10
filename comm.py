@@ -1,5 +1,4 @@
 from migen.fhdl.std import *
-from migen.genlib.record import Record
 from migen.flow.actor import Source, Sink
 from migen.flow.transactions import Token
 from migen.actorlib.sim import SimActor
@@ -24,22 +23,20 @@ mem_layout = [("data", 16)]
 
 
 class MemWriter(Module):
-    def __init__(self, dacs):
+    def __init__(self, pads, dacs):
         self.data_in = Sink(mem_layout)
         self.busy = Signal()
-        self.comb += self.busy.eq(~self.data_in.ack)
+        self.comb += self.busy.eq(~self.data_in.ack | self.data_in.stb)
         mems = [dac.parser.mem.get_port(write_capable=True) for dac in dacs]
         self.specials += mems
-       
-        self.adr = Signal(4)
 
         dev_adr = Signal(16)
         board_adr = Signal(4)
-        self.comb += board_adr.eq(dev_adr[:flen(self.adr)])
+        self.comb += board_adr.eq(dev_adr[:flen(board_adr)])
         dac_adr = Signal(2)
         self.comb += dac_adr.eq(dev_adr[8:8+flen(dac_adr)])
         listen = Signal()
-        self.comb += listen.eq(board_adr == self.adr)
+        self.comb += listen.eq(board_adr == pads.adr)
         data_len = Signal(16)
         mem_adr = Signal(16)
         self.comb += [mem.adr.eq(mem_adr[:flen(mem.adr)]) for mem in mems]
@@ -53,7 +50,7 @@ class MemWriter(Module):
  
         self.comb += self.data_in.ack.eq(1) # can always accept
         data = self.data_in.payload.data
-        self.comb += mem_dat.eq(data)
+        self.comb += mem_dat.eq(data) # gated by we
         self.comb += we.eq(listen & (state == states["DATA"])
                 & self.data_in.stb)
 
@@ -72,14 +69,29 @@ class MemWriter(Module):
         self.sync += If(self.data_in.stb & self.data_in.ack,
                 Case(state, actions))
 
+
+class Ctrl(Module):
+    def __init__(self, pads, dacs):
         self.command_in = Sink(data_layout)
         cmd = self.command_in.payload.data
         self.comb += self.command_in.ack.eq(1) # can alway accept
+        self.busy = Signal()
+        self.comb += self.busy.eq(~self.command_in.ack | self.command_in.stb)
         
         self.reset = Signal()
+        self.comb += pads.reset.eq(self.reset)
         self.trigger = Signal()
         self.arm = Signal()
-        
+ 
+        for dac in dacs:
+            self.comb += dac.parser.interrupt.eq(pads.interrupt)
+            self.comb += dac.out.trigger.eq(pads.trigger | self.trigger)
+            self.comb += dac.out.arm.eq(self.arm)
+
+        #self.comb += busy.eq(Cat(*(dac.out.busy for dac in dacs)) != 0)
+        self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)
+        self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
+       
         commands = {
                 "RESET_EN":    (0x00, [
                     self.reset.eq(1), self.trigger.eq(0), self.arm.eq(0)]),
@@ -103,14 +115,10 @@ class Comm(Module):
         unescaper = Unescaper(data_layout, 0xaa)
         g.add_connection(reader, unescaper)
         pack = Pack(data_layout, 2)
-        g.add_connection(unescaper, pack, "oa", None)
-        #g.add_connection(reader, pack)
+        g.add_connection(unescaper, pack, "oa")
+        #g.add_connection(reader, pack) # no escaping
         cast = Cast(pack_layout(data_layout, 2), mem_layout)
         g.add_connection(pack, cast)
-        memwriter = MemWriter(dacs)
-        self.memwriter = memwriter
-        g.add_connection(cast, memwriter, None, "data_in")
-        g.add_connection(unescaper, memwriter, "ob", "command_in")
-        self.submodules += CompositeActor(g) 
-
-        self.comb += memwriter.adr.eq(pads.adr)
+        g.add_connection(cast, MemWriter(pads, dacs))
+        g.add_connection(unescaper, Ctrl(pads, dacs), "ob")
+        self.submodules.graph = CompositeActor(g) 
