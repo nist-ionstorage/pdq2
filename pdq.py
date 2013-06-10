@@ -125,11 +125,10 @@ class Pdq(object):
         calculate b-spframe interpolation derivatives for voltage data
         according to interpolation mode
         returns times, voltages and derivatives suitable for passing to
-        serialize_branch()
+        frame()
         also removes the first times point (implicitly shifts to 0) and
         the last voltages/derivatives (irrelevant since the section ends
-        here) and sets the pause/trigger marker on the last point
-        as desired by the fpga
+        here)
         """
         derivatives = []
         if mode in (1, 2, 3):
@@ -137,91 +136,82 @@ class Pdq(object):
             derivatives = [interpolate.splev(times[:-1], spframe, der=i+1)
                     for i in range(mode)]
         voltages = voltages[:-1]
-        times = times[1:]-times[0]
+        times = times[1:]
         return times, voltages, derivatives
 
     def frame(self, times, voltages, derivatives=None,
             time_shift=0, trigger_first=False, wait_last=True):
         """
-        serialize channel branch data into buffer
+        serialize frame data
         voltages in volts, times in seconds,
-        derivatives according to chosen interpolation mode
+        derivatives can be a number in which case the derivatives will
+        be the interpolation, else it should be a list of derivatives
         """
         if type(derivatives) is type(1):
             times, voltages, derivatives = self.interpolate(times,
                     voltages, derivatives)
+        order = len(derivatives)
+        length = len(times)
+        voltages = [voltages] + list(derivatives)
+
         frame = []
 
-        head = np.zeros((len(times),), "u2")
-        head[:] = (len(derivatives)<<0)
+        head = np.zeros((length,), "u2")
+        head[:] |= order<<0
         head[-1] |= wait_last<<4
         head[0] |= trigger_first<<5
         head[:] |= time_shift<<6
         #head[:] |= reserved<<8
         frame.append(head)
 
-        dt = np.diff(np.r_[0, times])*self.freq/(1<<time_shift)
+        dt = np.diff(np.r_[0, times])*(self.freq/(1<<time_shift))
         # FIXME: clipped intervals cumulatively skew
         # subsequent ones
         np.clip(dt, self.min_time, self.max_time, out=dt)
         frame.append(dt.astype("i2"))
 
-        scale = self.scale
-        v0 = voltages*scale
-        # np.clip(v0, -self.range, self.range, out=voltages)
-        frame.append(v0.astype("i2"))
-
-        if len(derivatives) >= 1:
-            scale *= (1<<16)/self.freq
-            v1 = (scale*derivatives[0]).astype("i4")
-            frame.append(v1)
-
-        if len(derivatives) >= 2:
-            scale *= (1<<16)/self.freq
-            # no i6 dtype
-            v2 = (scale*derivatives[1]).astype("i8")
-            frame.append(v2.astype("i4"))
-            frame.append((v2>>32).astype("i2"))
-
-        if len(derivatives) >= 3:
-            scale *= 1/self.freq
-            v3 = (scale*derivatives[2]).astype("i8")
-            frame.append(v3.astype("i4"))
-            frame.append((v3>>32).astype("i2"))
+        byts = [2, 4, 6, 6]
+        for i, (v, byt) in enumerate(zip(voltages, byts)):
+            scale = self.scale*(1<<(8*(byt-2)))/self.freq**i
+            v = np.rint(scale*v).astype("i8")
+            # np.clip(v, -self.range, self.range, out=v)
+            if byt <= 4:
+                frame.append(v.astype("i%i" % byt))
+            else: # no i6 type
+                frame.append(v.astype("i4"))
+                frame.append((v>>32).astype("i%i" % (byt-4)))
 
         frame = np.rec.fromarrays(frame, byteorder="<") # interleave
-        length = len(frame.data.tobytes())
+        data_length = len(frame.data.tobytes())
+        logging.debug("frame %s dtype %s shape %s length %s",
+                frame, frame.dtype, frame.shape, data_length)
         bytes_per_line = {0: 2+2+2, 1: 2+2+2+4, 2: 2+2+2+4+6, 3: 2+2+2+4+6+6}
-        assert length == bytes_per_line[len(derivatives)]*len(voltages), (
-                  len(voltages), length)
-        logging.debug("frame shape %s len %i", frame.shape, length)
-        logging.debug("frame dtype %s", frame.dtype)
-        logging.debug("frame %s", frame)
-        #logging.debug("frame raw %s", repr(data))
+        bpl = bytes_per_line[order]
+        assert data_length == bpl*length, (data_length, bpl, length,
+                frame.shape)
         return frame
 
     @staticmethod
     def add_frame_header(frame, repeat, next):
-        head = struct.pack("<B B H", next, repeat, frame.shape[0])
+        head = struct.pack("<BBH", next, repeat, frame.shape[0])
         logging.debug("frame header %r", head)
         return head + frame.data.tobytes()
 
     def combine_frames(self, frames):
-        lens = [len(frame)//2 for frame in frames]
-        mems = np.cumsum([len(frames)] + lens[:-1])
+        lens = [len(frame)//2 for frame in frames[:-1]] # 16 bits
+        mems = np.cumsum([len(frames)] + lens)
         chunk = mems.astype("<u2").data.tobytes()
-        logging.debug("mem len %i", len(chunk))
-        logging.debug("mem %r", chunk)
+        logging.debug("mem len %i, %r", len(chunk), chunk)
         for frame in frames:
             chunk += frame
         assert len(chunk) <= self.max_data
         return chunk
 
     def add_mem_header(self, board, dac, mem_adr, chunk):
-        length = len(chunk)
+        length = len(chunk)//2 # 16 bit memory
         assert dac in range(self.num_dacs)
         assert board in range(self.num_boards)
-        head = struct.pack("<B B H H", board, dac, mem_adr, length//2)
+        head = struct.pack("<BBHH", board, dac, mem_adr, length)
         logging.debug("mem header %r", head)
         return head + chunk
 
@@ -229,14 +219,13 @@ class Pdq(object):
             next=None, **frame_kwargs):
         frames = []
         for i, (t, v) in enumerate(times_voltages):
-            n = next is not None and next or i
+            n = i if next is None else next
             frame = self.frame(t, v, derivatives=mode, **frame_kwargs)
-            frames.append(self.add_frame_header(frame, repeat=1, next=n))
+            frames.append(self.add_frame_header(frame, repeat, n))
         data = self.combine_frames(frames)
         board, dac = divmod(channel, self.num_dacs)
         data = self.add_mem_header(board, dac, 0, data)
-        logging.debug("write len %i", len(data))
-        logging.debug("write %s", list(map(hex, data)))
+        logging.debug("write %s, len %i", list(map(hex, data)), len(data))
         return data
 
     def single_frame(self, times, voltages, **kwargs):
@@ -252,6 +241,7 @@ class Pdq(object):
         pseudo-regex: (header branch*)*
         """
         for segment in segments:
+            # escape escape
             segment = segment.replace(bytes([self.escape]),
                     bytes([self.escape, self.escape]))
             written = self.dev.write(segment)
@@ -325,9 +315,6 @@ def main():
         fig.savefig(args.plot)
 
     dev = Pdq(serial=args.serial)
-    dev.write_cmd("ARM_DIS" if args.disarm else "ARM_EN")
-    dev.write_cmd("TRIGGER_EN" if args.free else "TRIGGER_DIS")
-
     channels = (args.channel == -1) and range(9) or [args.channel]
     for channel in channels:
         if args.interrupt == -1:
@@ -338,7 +325,8 @@ def main():
             data = dev.single_frame(times, voltages, channel=channel,
                     mode=args.mode)
         dev.write(data)
-
+    dev.write_cmd("ARM_DIS" if args.disarm else "ARM_EN")
+    dev.write_cmd("TRIGGER_EN" if args.free else "TRIGGER_DIS")
 
 if __name__ == "__main__":
     main()

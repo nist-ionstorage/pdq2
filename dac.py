@@ -30,6 +30,13 @@ class Parser(Module):
         fp = self.line_out.payload
         self.busy = Signal()
         self.comb += self.busy.eq(~self.line_out.stb)
+        complete = Signal()
+        self.comb += complete.eq(self.line_out.stb &
+                self.line_out.ack)
+        self.sync += If(complete,
+                self.line_out.stb.eq(0),
+                fp.raw_bits().eq(0),
+            )
 
         # MEM:
         #   IRQ0_ADR 16
@@ -99,9 +106,6 @@ class Parser(Module):
 
         save_data = Signal(16)
         delayed = Signal()
-        complete = Signal()
-        self.comb += complete.eq(self.line_out.stb &
-                self.line_out.ack)
         seq_actions[states["HEADER"]] = [ # override
                 If(self.line_out.stb & ~self.line_out.ack & ~delayed,
                     # first delayed sending cycle
@@ -138,7 +142,7 @@ class Parser(Module):
                 If(interrupt != save_interrupt,
                     read.adr.eq(interrupt),
                     save_interrupt.eq(interrupt),
-                    fp.trigger.eq(1), # ?
+                    #fp.trigger.eq(1), # no, use pads.trigger
                     state.eq(states["WAIT0"]),
                 ).Elif(length <= 1,
                     If(repetitions >= repeat,
@@ -154,9 +158,6 @@ class Parser(Module):
                     state.eq(states["HEADER"]),
                 )
             ),
-            If(complete,
-                self.line_out.stb.eq(0),
-            ),
             ]
 
 
@@ -169,15 +170,21 @@ class DacOut(Module):
         self.comb += self.busy.eq(~self.line_in.ack)
 
         self.trigger = Signal()
+        self.arm = Signal()
+
         self.data = Signal(16)
         self.comb += self.data.eq(line.v0[-16:])
         dt_dec = Signal(16)
         line_dt_dec = Signal(16)
+        next_triggers = Signal()
+        self.comb += next_triggers.eq(self.line_in.stb &
+                self.line_in.payload.trigger)
         hold = Signal()
-        self.comb += hold.eq(line.wait & ~(self.trigger |
-                (self.line_in.stb & self.line_in.payload.trigger)))
+        self.comb += hold.eq(~self.arm | (line.wait &
+            ~(self.trigger | next_triggers)))
         self.comb += self.line_in.ack.eq((line.dt <= 1) & (dt_dec <= 1)
                 & ~hold)
+        lp = self.line_in.payload
         self.sync += [
                 If(dt_dec > 1,
                     dt_dec.eq(dt_dec - 1),
@@ -189,9 +196,9 @@ class DacOut(Module):
                         line.dt.eq(line.dt - 1),
                         dt_dec.eq(line_dt_dec),
                     ).Elif(self.line_in.stb & self.line_in.ack,
-                        line.eq(self.line_in.payload),
-                        dt_dec.eq(1<<self.line_in.payload.shift),
-                        line_dt_dec.eq(1<<self.line_in.payload.shift),
+                        line.eq(lp),
+                        dt_dec.eq(1<<lp.shift),
+                        line_dt_dec.eq(1<<lp.shift),
                     ),
                 ),
                 ]
@@ -215,7 +222,8 @@ class TB(Module):
 
     def do_simulation(self, s):
         self.outputs.append(s.rd(self.dac.out.data))
-        #if s.cycle_counter == 0:
+        if s.cycle_counter == 0:
+            s.wr(self.dac.out.arm, 1)
         #    s.wr(self.dac.parser.interrupt, 2)
         if s.cycle_counter == 100:
             s.wr(self.dac.out.trigger, 1)

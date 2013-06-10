@@ -11,6 +11,6 @@ class Ctrl(Module):
 
         for dac in dacs:
             self.comb += dac.parser.interrupt.eq(pads.interrupt)
-            self.comb += dac.out.trigger.eq(
-                    (pads.trigger & comm.memwriter.arm) |
+            self.comb += dac.out.trigger.eq(pads.trigger |
                     comm.memwriter.trigger)
+            self.comb += dac.out.arm.eq(comm.memwriter.arm)

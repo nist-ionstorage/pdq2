@@ -70,7 +70,7 @@ class TB(Module):
         if s.cycle_counter == 0:
             s.wr(self.ctrl_pads.interrupt, 0)
             s.wr(self.comm_pads.adr, 1)
-            s.wr(self.ctrl_pads.trigger, 1)
+            #s.wr(self.ctrl_pads.trigger, 1)
         self.outputs.append(s.rd(self.dac1.out.data))
 
 
@@ -82,12 +82,13 @@ def main():
     import pdq
     pdq.Ftdi = pdq.FileFtdi
 
-    t = np.linspace(0, 3e-6, 11)
+    t = np.arange(11)*.26e-6
     v = (1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
     mem = p.single_frame(t, v, channel=4, mode=3,
-            repeat=2, wait_last=True)
-    mem = p.cmd("RESET_EN") + p.cmd("RESET_DIS") + mem
+            repeat=2, wait_last=True, time_shift=0)
+    mem = (p.cmd("RESET_EN") + mem + p.cmd("RESET_DIS")
+            + p.cmd("ARM_EN"))
 
     n = 3000
     tb = TB(list(mem))

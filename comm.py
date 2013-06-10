@@ -159,10 +159,11 @@ class MemWriter(Module):
         
         self.reset = Signal()
         self.trigger = Signal()
-        self.arm = Signal(reset=1)
+        self.arm = Signal()
         
         commands = {
-                "RESET_EN":    (0x00, [self.reset.eq(1)]),
+                "RESET_EN":    (0x00, [
+                    self.reset.eq(1), self.trigger.eq(0), self.arm.eq(0)]),
                 "RESET_DIS":   (0x01, [self.reset.eq(0)]),
                 "TRIGGER_EN":  (0x02, [self.trigger.eq(1)]),
                 "TRIGGER_DIS": (0x03, [self.trigger.eq(0)]),
