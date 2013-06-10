@@ -83,7 +83,7 @@ def main():
     pdq.Ftdi = pdq.FileFtdi
 
     t = np.arange(11)*.26e-6
-    v = (1-np.cos(t/t[-1]*np.pi))/2
+    v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
     mem = p.single_frame(t, v, channel=4, derivatives=4,
             aux=t>.5e-6, repeat=2, wait_last=True, time_shift=0)
