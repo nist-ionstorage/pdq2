@@ -100,7 +100,7 @@ class Comm(Module):
             #reader = SimReader(mem)
             self.submodules.simin = SimFt245r_rx(pads, mem)
         reader = Ft245r_rx(pads)
-        unescaper = Unescaper(data_layout, 0x5a)
+        unescaper = Unescaper(data_layout, 0xaa)
         g.add_connection(reader, unescaper)
         pack = Pack(data_layout, 2)
         g.add_connection(unescaper, pack, "oa", None)

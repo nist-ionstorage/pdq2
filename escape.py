@@ -9,8 +9,8 @@ from migen.flow.network import DataFlowGraph, CompositeActor
 
 
 class Unescaper(Module):
-    # something rare, 0xff and 0x00 are too common
-    def __init__(self, layout, escape=0x5a):
+    # something rare, 0xff and 0x00 are too common, 0xaa is 0x10101010
+    def __init__(self, layout, escape=0xaa):
         i = Sink(layout)
         oa, ob = Source(layout), Source(layout)
         self.i, self.oa, self.ob = i, oa, ob
@@ -63,7 +63,7 @@ class SimSink(SimActor):
 class EscapeTB(Module):
     def __init__(self, data):
         self.source = SimSource(data)
-        self.unescaper = Unescaper(data_layout, 0x5a)
+        self.unescaper = Unescaper(data_layout)
         self.asink = SimSink("a")
         self.bsink = SimSink("b")
         g = DataFlowGraph()
@@ -81,8 +81,8 @@ if __name__ == "__main__":
 
     print(verilog.convert(EscapeTB([])))
 
-    data = [1, 2, 0x5a, 3, 4, 0x5a, 0x5a, 5, 6, 0x5a, 0x5a, 0x5a, 7, 8,
-            0x5a, 0x5a, 0x5a, 0x5a, 9, 10]
-    print("a1 a2 b3 a4 a90 a5 a6 a90 b7 a8 a90 a90 a9 a10")
+    data = [1, 2, 0xaa, 3, 4, 0xaa, 0xaa, 5, 6, 0xaa, 0xaa, 0xaa, 7, 8,
+            0xaa, 0xaa, 0xaa, 0xaa, 9, 10]
+    print("a1 a2 b3 a4 a170 a5 a6 a170 b7 a8 a170 a170 a9 a10")
     Simulator(EscapeTB(data)).run(200)
     print()

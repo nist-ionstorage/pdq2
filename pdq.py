@@ -58,15 +58,15 @@ class Pdq(object):
     """
     PDQ DAC (a.k.a. QC_Waveform)
     """
-    range = (1<<15)-1 # signed 16 bit DAC
+    range = 1<<15 # signed 16 bit DAC
     scale = range/10. # LSB/V
     freq = 50e6 # samples/s
-    min_time = 11 # processing time for a mode=3 point
+    min_time = 11 # processing time for a mode=4 point
     max_time = range # signed 16 bit timer
     num_boards = 3
     num_dacs = 3
-    max_data = 4*(1<<10) # 6144 data buffer size per channel
-    escape = 0x5a
+    max_data = 8*(1<<10) # 6144 data buffer size per channel
+    escape = 0xaa
 
     commands = {
             "RESET_EN":    0x00,
@@ -132,10 +132,10 @@ class Pdq(object):
         here)
         """
         derivatives = []
-        if mode in (1, 2, 3):
-            spframe = interpolate.splrep(times, voltages, s=0, k=mode)
+        if mode >= 2:
+            spframe = interpolate.splrep(times, voltages, s=0, k=mode-1)
             derivatives = [interpolate.splev(times[:-1], spframe, der=i+1)
-                    for i in range(mode)]
+                    for i in range(mode-1)]
         voltages = voltages[:-1]
         times = times[1:]
         return times, voltages, derivatives
@@ -218,12 +218,12 @@ class Pdq(object):
         logging.debug("mem header %r", head)
         return head + chunk
 
-    def multi_frame(self, times_voltages, channel, mode=3, repeat=1,
+    def multi_frame(self, times_voltages, channel, repeat=1,
             next=None, **frame_kwargs):
         frames = []
         for i, (t, v) in enumerate(times_voltages):
             n = i if next is None else next
-            frame = self.frame(t, v, derivatives=mode, **frame_kwargs)
+            frame = self.frame(t, v, **frame_kwargs)
             frames.append(self.add_frame_header(frame, repeat, n))
         data = self.combine_frames(frames)
         board, dac = divmod(channel, self.num_dacs)
@@ -239,9 +239,7 @@ class Pdq(object):
 
     def write(self, *segments):
         """
-        writes segments to device
-        segments is a flat sequence of channel header and branch data,
-        pseudo-regex: (header branch*)*
+        writes data segments to device
         """
         for segment in segments:
             # escape escape
@@ -264,19 +262,19 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="""PDQ DAC frontend.
             Evaluates times and voltages, interpolates them and uploads
-            them to one section in one branch for one channel.""")
+            them.""")
     parser.add_argument("-s", "--serial", default=None,
             help="device (FT245R) serial string [first]")
     parser.add_argument("-c", "--channel", default=0, type=int,
-            help="channel: 3*fpga_num+dac_num [%(default)s]")
+            help="channel: 3*board_num+dac_num [%(default)s]")
     parser.add_argument("-i", "--interrupt", default=0, type=int,
             help="interrupt number [%(default)s]")
     parser.add_argument("-f", "--free", default=False,
             action="store_true",
-            help="soft triggered, free running [%(default)s]")
+            help="software trigger group, free running [%(default)s]")
     parser.add_argument("-n", "--disarm", default=False,
             action="store_true",
-            help="disarm external trigger [%(default)s]")
+            help="disarm group [%(default)s]")
     parser.add_argument("-t", "--times",
             default="np.linspace(0, 1e-3, 11)",
             help="sample times (s) [%(default)s]")
@@ -284,11 +282,11 @@ def main():
             default="(1-np.cos(t/t[-1]*np.pi))/2",
             help="sample voltages (V) [%(default)s]")
     parser.add_argument("-m", "--mode", default=3, type=int,
-            help="interpolation (0: v_only, 1: const, 2: quad, 3: cubic)"
+            help="interpolation (1: only aux, 1: const, 2: lin, 2: quad, 3: cubic)"
                  " [%(default)s]")
     parser.add_argument("-x", "--test", default=False, action="store_true",
-            help="test mode, assign all channels and all branches the"
-                 "same waveform shifted by channel+.1*branch [%(default)s]")
+            help="test mode, assign all channels and all interrupts the"
+                 "same waveform shifted by channel+.1*interrupt [%(default)s]")
     parser.add_argument("-p", "--plot",
             help="plot to file [%(default)s]")
     parser.add_argument("-d", "--debug", default=False,
@@ -309,7 +307,7 @@ def main():
         from matplotlib import pyplot as plt
         times -= times[0]
         spframe = interpolate.splrep(times, voltages,
-                s=0, k=args.mode)
+                s=0, k=args.mode-1)
         ttimes = np.arange(0, times[-1], 1/Pdq.freq)
         vvoltages = interpolate.splev(ttimes, spframe, der=0)
         fig, ax0 = plt.subplots()
@@ -326,7 +324,7 @@ def main():
             data = dev.multi_frame(zip(t, v), channel, args.mode)
         else:
             data = dev.single_frame(times, voltages, channel=channel,
-                    mode=args.mode)
+                    derivatives=args.mode)
         dev.write(data)
     dev.write_cmd("ARM_DIS" if args.disarm else "ARM_EN")
     dev.write_cmd("TRIGGER_EN" if args.free else "TRIGGER_DIS")
