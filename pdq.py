@@ -60,7 +60,7 @@ class Pdq(object):
     """
     range = 1<<15 # signed 16 bit DAC
     scale = range/10. # LSB/V
-    freq = 100e6 # samples/s
+    freq = 50e6 # samples/s
     min_time = 11 # processing time for a mode=4 point
     max_time = range # signed 16 bit timer
     num_boards = 3
