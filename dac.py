@@ -10,7 +10,8 @@ line_layout = [
         ("wait", 1),
         ("trigger", 1),
         ("shift", 4),
-        ("reserved", 6),
+        ("aux", 4),
+        ("reserved", 2),
         ("dt", 16),
         ("v0", 48),
         ("v1", 48),
@@ -42,7 +43,7 @@ class Parser(Module):
         #   IRQ0_ADR 16
         #   ...
         #   IRQ7_ADR 16
-        #   JUMP_ADR 16
+        #   ADDITIONAL_ADR 16
         #   ...
         #   FRAME
         #   ...
@@ -57,9 +58,10 @@ class Parser(Module):
         #   HEADER 16:
         #     TYP 4
         #     WAIT 1
-        #     FORCE 1
-        #     DT_SHIFT 4
-        #     RESERVED 6
+        #     TRIGGER 1
+        #     SHIFT 4
+        #     AUX 4
+        #     RESERVED 2
         #   DT 16
         #   V0 16
         #   (V1 32)
@@ -71,7 +73,8 @@ class Parser(Module):
         mode = Cat(next_frame, repeat)
         length = Signal(16)
 
-        header = Cat(fp.typ, fp.wait, fp.trigger, fp.shift, fp.reserved)
+        header = Cat(fp.typ, fp.wait, fp.trigger, fp.shift, fp.aux,
+                fp.reserved)
 
         states = dict((v, i) for i, v in enumerate("WAIT0 IRQ WAIT1 "
             "MODE LENGTH HEADER "
@@ -130,7 +133,7 @@ class Parser(Module):
         self.interrupt = interrupt
         save_interrupt = Signal(4)
 
-        short_send = "V0 V1A V2B V3B".split()
+        short_send = "DT V0 V1A V2B V3B".split()
         line_ready = Signal()
         self.comb += line_ready.eq(optree("|", [
                     (state == states[st]) & (fp.typ == j)
@@ -142,7 +145,8 @@ class Parser(Module):
                 If(interrupt != save_interrupt,
                     read.adr.eq(interrupt),
                     save_interrupt.eq(interrupt),
-                    #fp.trigger.eq(1), # no, use pads.trigger
+                    #fp.trigger.eq(1), # no:
+                    # use pads.trigger or line.trigger
                     state.eq(states["WAIT0"]),
                 ).Elif(length <= 1,
                     If(repetitions >= repeat,
@@ -171,6 +175,7 @@ class DacOut(Module):
 
         self.trigger = Signal()
         self.arm = Signal()
+        self.aux = Signal(4)
 
         self.data = Signal(16)
         self.comb += self.data.eq(line.v0[-16:])
@@ -190,15 +195,23 @@ class DacOut(Module):
                     dt_dec.eq(dt_dec - 1),
                 ).Else(
                     If(line.dt > 1,
-                        line.v0.eq(line.v0 + line.v1),
-                        line.v1.eq(line.v1 + line.v2),
-                        line.v2.eq(line.v2 + line.v3),
+                        If(line.typ >= 2, line.v0.eq(line.v0 + line.v1)),
+                        If(line.typ >= 3, line.v1.eq(line.v1 + line.v2)),
+                        If(line.typ >= 4, line.v2.eq(line.v2 + line.v3)),
                         line.dt.eq(line.dt - 1),
                         dt_dec.eq(line_dt_dec),
                     ).Elif(self.line_in.stb & self.line_in.ack,
-                        line.eq(lp),
+                        line.typ.eq(lp.typ),
+                        line.wait.eq(lp.wait),
+                        line.trigger.eq(lp.trigger),
+                        self.aux.eq(lp.aux),
                         dt_dec.eq(1<<lp.shift),
                         line_dt_dec.eq(1<<lp.shift),
+                        line.dt.eq(lp.dt),
+                        If(lp.typ >= 1, line.v0.eq(lp.v0)),
+                        If(lp.typ >= 2, line.v1.eq(lp.v1)),
+                        If(lp.typ >= 3, line.v2.eq(lp.v2)),
+                        If(lp.typ >= 4, line.v3.eq(lp.v3)),
                     ),
                 ),
                 ]
@@ -222,11 +235,11 @@ class TB(Module):
 
     def do_simulation(self, s):
         self.outputs.append(s.rd(self.dac.out.data))
-        if s.cycle_counter == 0:
+        if s.cycle_counter == 100:
             s.wr(self.dac.out.arm, 1)
         #    s.wr(self.dac.parser.interrupt, 2)
-        if s.cycle_counter == 100:
-            s.wr(self.dac.out.trigger, 1)
+        #if s.cycle_counter == 100:
+        #    s.wr(self.dac.out.trigger, 1)
         #if s.cycle_counter == 200:
         #    s.wr(self.dac.parser.interrupt, 0)
         if (s.rd(self.dac.out.line_in.ack) and
@@ -247,10 +260,10 @@ def main():
 
     #print(verilog.convert(Dac()))
 
-    t = np.arange(0, 6) * .28e-6
+    t = np.arange(0, 6) * .3e-6
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
-    frame = p.frame(t, v, derivatives=3, wait_last=True)
+    frame = p.frame(t, v, derivatives=3, aux=t>.6e-6, wait_last=True)
     frame = p.add_frame_header(frame, repeat=2, next=0)
     mem = p.combine_frames([frame])
     mem = list(np.fromstring(mem, "<u2"))

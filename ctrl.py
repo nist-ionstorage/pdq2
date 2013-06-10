@@ -4,7 +4,7 @@ class Ctrl(Module):
     def __init__(self, pads, comm, dacs):
         busy = Signal()
         self.comb += busy.eq(Cat(*(dac.out.busy for dac in dacs)) != 0)
-        self.comb += pads.aux.eq(busy)
+        self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)
         
         self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
         self.comb += pads.reset.eq(comm.memwriter.reset)

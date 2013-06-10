@@ -103,11 +103,12 @@ class Pdq(object):
     #   HEADER 16:
     #     TYP 4
     #     WAIT 1
-    #     FORCE 1
-    #     DT_SHIFT 4
-    #     RESERVED 6
+    #     TRIGGER 1
+    #     SHIFT 4
+    #     AUX 4
+    #     RESERVED 2
     #   DT 16
-    #   V0 16
+    #   (V0 16)
     #   (V1 32)
     #   (V2 48)
     #   (V3 48)
@@ -139,7 +140,7 @@ class Pdq(object):
         times = times[1:]
         return times, voltages, derivatives
 
-    def frame(self, times, voltages, derivatives=None,
+    def frame(self, times, voltages, derivatives=None, aux=None,
             time_shift=0, trigger_first=False, wait_last=True):
         """
         serialize frame data
@@ -157,11 +158,13 @@ class Pdq(object):
         frame = []
 
         head = np.zeros((length,), "u2")
-        head[:] |= order<<0
+        head[:] |= (order+1)<<0
         head[-1] |= wait_last<<4
         head[0] |= trigger_first<<5
         head[:] |= time_shift<<6
-        #head[:] |= reserved<<8
+        if aux is not None:
+            head[:] |= aux[:length]<<10
+        #head[:] |= reserved<<14
         frame.append(head)
 
         dt = np.diff(np.r_[0, times])*(self.freq/(1<<time_shift))

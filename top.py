@@ -85,7 +85,7 @@ def main():
     t = np.arange(11)*.26e-6
     v = (1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
-    mem = p.single_frame(t, v, channel=4, mode=3,
+    mem = p.single_frame(t, v, channel=4, mode=3, aux=t>.5e-6,
             repeat=2, wait_last=True, time_shift=0)
     mem = (p.cmd("RESET_EN") + mem + p.cmd("RESET_DIS")
             + p.cmd("ARM_EN"))
