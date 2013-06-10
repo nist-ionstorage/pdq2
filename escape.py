@@ -10,7 +10,7 @@ from migen.flow.network import DataFlowGraph, CompositeActor
 
 class Unescaper(Module):
     # something rare, 0xff and 0x00 are too common
-    def __init__(self, layout, escape):
+    def __init__(self, layout, escape=0x5a):
         i = Sink(layout)
         oa, ob = Source(layout), Source(layout)
         self.i, self.oa, self.ob = i, oa, ob
@@ -23,26 +23,17 @@ class Unescaper(Module):
         is_escape = Signal()
         self.comb += is_escape.eq(i.stb & (i.payload.raw_bits() == escape))
         was_escape = Signal()
-        self.sync += If(i.stb & i.ack, was_escape.eq(~was_escape & is_escape))
-
-        fsm = FSM("DATA", "CMD")
-        self.submodules.fsm = fsm
-        fsm.act(fsm.DATA,
-            If(is_escape & ~was_escape,
-                Cat(i.ack, oa.stb, ob.stb).eq(Cat(1, 0, 0)),
-                fsm.next_state(fsm.CMD),
-            ).Else(
-                Cat(i.ack, oa.stb, ob.stb).eq(Cat(oa.ack, i.stb, 0)),
-                If(oa.ack, fsm.next_state(fsm.DATA)),
-            ))
-        fsm.act(fsm.CMD,
-            If(is_escape,
-                Cat(i.ack, oa.stb, ob.stb).eq(Cat(0, 0, 0)),
-                fsm.next_state(fsm.DATA),
-            ).Else(
-                Cat(i.ack, oa.stb, ob.stb).eq(Cat(ob.ack, 0, i.stb)),
-                If(ob.ack, fsm.next_state(fsm.DATA)),
-            ))
+        self.sync += If(i.ack & i.stb,
+                was_escape.eq(is_escape & ~was_escape))
+        ctrl = Cat(i.ack, oa.stb, ob.stb)
+        self.comb += [
+                If(is_escape == was_escape,
+                    ctrl.eq(Cat(oa.ack, i.stb, 0)),
+                ).Elif(is_escape,
+                    ctrl.eq(Cat(1, 0, 0)),
+                ).Else(
+                    ctrl.eq(Cat(ob.ack, 0, i.stb)),
+                )]
 
 
 data_layout = [("data", 8)]
@@ -55,7 +46,7 @@ class SimSource(SimActor):
 
     def gen(self, data):
         for i in data:
-            print("{} >".format(i))
+            # print("{} >".format(i))
             yield Token("source", {"data": i})
 
 class SimSink(SimActor):
@@ -67,14 +58,14 @@ class SimSink(SimActor):
         while True:
             t = Token("sink")
             yield t
-            print("> {}: {}".format(name, t.value["data"]))
+            print("{}{}".format(name, t.value["data"]), end=" ")
 
 class EscapeTB(Module):
     def __init__(self, data):
         self.source = SimSource(data)
         self.unescaper = Unescaper(data_layout, 0x5a)
-        self.asink = SimSink("data")
-        self.bsink = SimSink("command")
+        self.asink = SimSink("a")
+        self.bsink = SimSink("b")
         g = DataFlowGraph()
         g.add_connection(self.source, self.unescaper)
         g.add_connection(self.unescaper, self.asink, "oa")
@@ -88,9 +79,10 @@ class EscapeTB(Module):
 if __name__ == "__main__":
     from migen.fhdl import verilog
 
-    print(verilog.convert(Unescaper(data_layout, 0x5a)))
+    print(verilog.convert(EscapeTB([])))
 
     data = [1, 2, 0x5a, 3, 4, 0x5a, 0x5a, 5, 6, 0x5a, 0x5a, 0x5a, 7, 8,
             0x5a, 0x5a, 0x5a, 0x5a, 9, 10]
-    # 1 2 c3 4 90 5 6 90 c7 8
+    print("a1 a2 b3 a4 a90 a5 a6 a90 b7 a8 a90 a90 a9 a10")
     Simulator(EscapeTB(data)).run(200)
+    print()

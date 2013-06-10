@@ -53,23 +53,14 @@ class Ft245r_rx(Module):
         self.busy = Signal()
         self.comb += self.busy.eq(~self.data_out.stb)
 
-        states = "RESET FILL SETUP HOLD".split()
+        states = "FILL SETUP HOLD".split()
         states = dict((v, i) for i, v in enumerate(states))
         state = Signal(max=len(states))
 
-        t = Signal(max=1<<20)
-        self.reset = Signal()
-        self.comb += self.reset.eq(state == states["RESET"])
+        t = Signal(max=3)
         self.comb += pads.rd_out.eq(~pads.rdl)
 
         actions = {
-                states["RESET"]: [
-                    If(t < (1<<6)-1, # FIXME 20
-                        t.eq(t + 1),
-                    ).Else(
-                        t.eq(0),
-                        state.eq(states["FILL"]),
-                    )],
                 states["FILL"]: [
                     If(t < 3,
                         t.eq(t + 1),
@@ -116,7 +107,6 @@ mem_layout = [("data", 16)]
 class MemWriter(Module):
     def __init__(self, dacs):
         self.data_in = Sink(mem_layout)
-        self.command_in = Sink(data_layout)
         self.busy = Signal()
         self.comb += self.busy.eq(~self.data_in.ack)
         mems = [dac.parser.mem.get_port(write_capable=True) for dac in dacs]
@@ -138,58 +128,69 @@ class MemWriter(Module):
         self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
         we = Array(mem.we for mem in mems)[dac_adr]
 
-        states = "DEV_ADR DATA_LEN MEM_ADR DATA".split()
+        states = "DEV_ADR MEM_ADR DATA_LEN DATA".split()
         states = dict((v, i) for i, v in enumerate(states))
         state = Signal(max=len(states))
  
         self.comb += self.data_in.ack.eq(1) # can always accept
         data = self.data_in.payload.data
-        actions = {
-                states["DEV_ADR"]: [
-                    we.eq(0),
-                    dev_adr.eq(data),
-                    state.eq(states["DATA_LEN"])],
-                states["DATA_LEN"]: [
-                    data_len.eq(data),
-                    state.eq(states["MEM_ADR"])],
-                states["MEM_ADR"]: [
-                    mem_adr.eq(data),
-                    state.eq(states["DATA"])],
-                states["DATA"]: [
-                    mem_dat.eq(data),
+        self.comb += mem_dat.eq(data)
+        self.comb += we.eq(listen & (state == states["DATA"])
+                & self.data_in.stb)
+
+        seq = [("DEV_ADR", dev_adr), ("MEM_ADR", mem_adr),
+                ("DATA_LEN", data_len), ("DATA", None)]
+        actions = {}
+        for i, (st, reg) in enumerate(seq[:-1]):
+            actions[states[st]] = [reg.eq(data),
+                    state.eq(states[seq[i+1][0]])]
+        actions[states["DATA"]] = [
                     mem_adr.eq(mem_adr + 1),
                     data_len.eq(data_len - 1),
-                    If(listen,
-                        we.eq(1),
-                    ),
-                    If(data_len == 0,
+                    If(data_len <= 1,
                         state.eq(states["DEV_ADR"]),
-                    )],
-                }
+                    )]
         self.sync += If(self.data_in.stb & self.data_in.ack,
-                Case(state, actions),
-                )
+                Case(state, actions))
+
+        self.command_in = Sink(data_layout)
+        cmd = self.command_in.payload.data
+        self.comb += self.command_in.ack.eq(1) # can alway accept
+        
+        self.reset = Signal()
+        self.trigger = Signal()
+        self.arm = Signal(reset=1)
+        
+        commands = {
+                "RESET_EN":    (0x00, [self.reset.eq(1)]),
+                "RESET_DIS":   (0x01, [self.reset.eq(0)]),
+                "TRIGGER_EN":  (0x02, [self.trigger.eq(1)]),
+                "TRIGGER_DIS": (0x03, [self.trigger.eq(0)]),
+                "ARM_EN":      (0x04, [self.arm.eq(1)]),
+                "ARM_DIS":     (0x05, [self.arm.eq(0)]),
+                }
+        self.sync += If(self.command_in.stb, Case(cmd,
+            dict((code, act) for name, (code, act) in commands.items())))
 
 
 class Comm(Module):
     def __init__(self, pads, dacs, mem=None):
         g = DataFlowGraph()
         if mem is not None:
-            mem = list(mem)
+            #reader = SimReader(mem)
             self.submodules.simin = SimFt245r_rx(pads, mem)
-            #self.reader = SimReader(mem)
         reader = Ft245r_rx(pads)
         unescaper = Unescaper(data_layout, 0x5a)
         g.add_connection(reader, unescaper)
         pack = Pack(data_layout, 2)
         g.add_connection(unescaper, pack, "oa", None)
+        #g.add_connection(reader, pack)
         cast = Cast(pack_layout(data_layout, 2), mem_layout)
         g.add_connection(pack, cast)
         memwriter = MemWriter(dacs)
+        self.memwriter = memwriter
         g.add_connection(cast, memwriter, None, "data_in")
         g.add_connection(unescaper, memwriter, "ob", "command_in")
         self.submodules += CompositeActor(g) 
 
         self.comb += memwriter.adr.eq(pads.adr)
-        self.comb += pads.reset.eq(reader.reset)
-        self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop

@@ -3,7 +3,6 @@ from mibuild.xilinx_ise import XilinxISEPlatform, CRG_SE
 
 _io = [
         ("clk", 0, Pins("P80"), IOStandard("LVCMOS25")),
-        ("reset", 0, Pins("P56"), IOStandard("LVCMOS25")), # INIT_B
 
         ("comm", 0,
             Subsignal("data", Pins(*
@@ -13,15 +12,15 @@ _io = [
             Subsignal("adr", Pins(*"P32 P6 P14 P43".split())),
             Subsignal("rd_in", Pins("P159")), #GO_1
             Subsignal("rd_out", Pins("P102")), #G1
-            Subsignal("go2_in", Pins("P169")), #GO_2 in
-            Subsignal("go2_out", Pins("P100")), #G2 out
-            Subsignal("reset", Pins("P96")), # dac_reset
             IOStandard("LVCMOS25")),
 
         ("ctrl", 0,
             Subsignal("trigger", Pins("P110")), #F1 
             Subsignal("interrupt", Pins(*"P118 P124 P98".split())), #F2 F3 F4
             Subsignal("aux", Pins("P99")), #F5 out
+            Subsignal("reset", Pins("P96")), # dac_reset
+            Subsignal("go2_in", Pins("P169")), #GO_2 in
+            Subsignal("go2_out", Pins("P100")), #G2 out
             IOStandard("LVCMOS25")
             ),
 
@@ -76,4 +75,4 @@ _io = [
 class Platform(XilinxISEPlatform):
     def __init__(self):
         XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,
-                lambda p: CRG_SE(p, "clk", None, 20.0)) # "reset"
+                lambda p: CRG_SE(p, "clk", None, 20.0))

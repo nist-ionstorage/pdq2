@@ -32,17 +32,19 @@ class Soc(Module):
                         )
 
         self.submodules.comm = Comm(platform.request("comm"), dacs)
-        self.submodules.ctrl = Ctrl(platform.request("ctrl"), dacs)
+        self.submodules.ctrl = Ctrl(platform.request("ctrl"), self.comm, dacs)
 
 
 class TB(Module):
-    tb_pads = [
+    comm_pads = [
             ("rxfl", 1),
             ("rdl", 1),
             ("rd_in", 1),
             ("rd_out", 1),
             ("data", 8),
             ("adr", 4),
+            ]
+    ctrl_pads = [
             ("aux", 1),
             ("interrupt", 3),
             ("trigger", 1),
@@ -58,16 +60,17 @@ class TB(Module):
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)
             dac.parser.mem.init = [0] * dac.parser.mem.depth
-        self.pads = Record(self.tb_pads)
-        self.submodules.comm = Comm(self.pads, dacs, mem)
-        self.submodules.ctrl = Ctrl(self.pads, dacs)
+        self.comm_pads = Record(self.comm_pads)
+        self.submodules.comm = Comm(self.comm_pads, dacs, mem)
+        self.ctrl_pads = Record(self.ctrl_pads)
+        self.submodules.ctrl = Ctrl(self.ctrl_pads, self.comm, dacs)
         self.outputs = []
 
     def do_simulation(self, s):
         if s.cycle_counter == 0:
-            s.wr(self.pads.interrupt, 1)
-            s.wr(self.pads.adr, 1)
-            # s.wr(self.pads.trigger, 1)
+            s.wr(self.ctrl_pads.interrupt, 0)
+            s.wr(self.comm_pads.adr, 1)
+            s.wr(self.ctrl_pads.trigger, 1)
         self.outputs.append(s.rd(self.dac1.out.data))
 
 
@@ -81,14 +84,13 @@ def main():
 
     t = np.linspace(0, 3e-6, 11)
     v = (1-np.cos(t/t[-1]*np.pi))/2
-    p = pdq.Pdq("top_test")
-    mem = bytes([0x01, 0x00]) + \
-            p.serialize_frame(t, v, derivatives=3,
-            trigger=True, next_frame=1, repeat=2)
-    mem = np.fromstring(mem, "u1")
+    p = pdq.Pdq()
+    mem = p.single_frame(t, v, channel=4, mode=3,
+            repeat=2, wait_last=True)
+    mem = p.cmd("RESET_EN") + p.cmd("RESET_DIS") + mem
 
     n = 3000
-    tb = TB(mem)
+    tb = TB(list(mem))
     sim = Simulator(tb, TopLevel("top.vcd"))
     sim.run(n)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)

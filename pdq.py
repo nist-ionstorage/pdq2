@@ -45,12 +45,10 @@ class FileFtdi(object):
 try:
     import pylibftdi
     Ftdi = PyFtdi
-    raise ImportError
 except ImportError:
     try:
         import ftd2xx
         Ftdi = D2xxFtdi
-        raise ImportError
     except ImportError:
         Ftdi = FileFtdi
 
@@ -65,43 +63,61 @@ class Pdq(object):
     freq = 50e6 # samples/s
     min_time = 11 # processing time for a mode=3 point
     max_time = range # signed 16 bit timer
-    num_fpgas = 3
+    num_boards = 3
     num_dacs = 3
     max_data = 4*(1<<10) # 6144 data buffer size per channel
+    escape = 0x5a
+
+    commands = {
+            "RESET_EN":    0x00,
+            "RESET_DIS":   0x01,
+            "TRIGGER_EN":  0x02,
+            "TRIGGER_DIS": 0x03,
+            "ARM_EN":      0x04,
+            "ARM_DIS":     0x05,
+            }
+        
+    # DEV_ADR:
+    #   BOARD 8
+    #   DAC 8
+    # MEM_ADR 16
+    # DATA_LEN 16
+    # MEM_DATA
+    #   
+    # MEM:
+    #   IRQ0_ADR 16
+    #   ...
+    #   IRQ7_ADR 16
+    #   JUMP_ADR 16
+    #   ...
+    #   FRAME
+    #   ...
+    # FRAME:
+    #   MODE 16:
+    #       NEXT_FRAME 8
+    #       REPEAT 8
+    #   LENGTH 16
+    #   LINE
+    #   ...
+    # LINE:
+    #   HEADER 16:
+    #     TYP 4
+    #     WAIT 1
+    #     FORCE 1
+    #     DT_SHIFT 4
+    #     RESERVED 6
+    #   DT 16
+    #   V0 16
+    #   (V1 32)
+    #   (V2 48)
+    #   (V3 48)
+
 
     def __init__(self, serial=None):
         self.dev = Ftdi(serial)
 
-        #   MODE:
-        #       NEXT_LINE 8
-        #       REPEAT 8
-        #   LENGTH
-        #   FRAME ... FRAME
-        # FRAME:
-        #   HEADER: 
-        #     TYP 4
-        #     WAIT 1
-        #     FORCE 1
-        #     DT_SHIFT 4
-        #     RESERVED 6
-        #   DT 16
-        #   V0 16
-        #   V1 32
-        #   V2 48
-        #   V3 48
-
-    def mem_header(self, board, channel, mem_adr, length):
-        assert channel in range(self.num_dacs)
-        assert board in range(self.num_boards)
-        head = struct.pack("<B B H H", board, channel, mem_adr,
-                length/2)
-        logging.debug("header len %i", len(head))
-        logging.debug("header %r", head)
-        return head
-
-    def set_interrupt(self, board, channel, interrupt, addr):
-        return self.write(mem_header(board, channel, interrupt, 1) + 
-                struct.pack("<H", addr))
+    def cmd(self, cmd):
+        return bytes([self.escape, self.commands[cmd]])
 
     @staticmethod
     def interpolate(times, voltages, mode):
@@ -115,17 +131,17 @@ class Pdq(object):
         here) and sets the pause/trigger marker on the last point
         as desired by the fpga
         """
-        derivatives = ()
+        derivatives = []
         if mode in (1, 2, 3):
             spframe = interpolate.splrep(times, voltages, s=0, k=mode)
             derivatives = [interpolate.splev(times[:-1], spframe, der=i+1)
                     for i in range(mode)]
         voltages = voltages[:-1]
-        times = times[1:]
+        times = times[1:]-times[0]
         return times, voltages, derivatives
 
-    def serialize_frame(self, times, voltages, derivatives=None,
-            trigger=True, next_frame=0, repeat=1):
+    def frame(self, times, voltages, derivatives=None,
+            time_shift=0, trigger_first=False, wait_last=True):
         """
         serialize channel branch data into buffer
         voltages in volts, times in seconds,
@@ -138,12 +154,13 @@ class Pdq(object):
 
         head = np.zeros((len(times),), "u2")
         head[:] = (len(derivatives)<<0)
-        head[-1] |= trigger<<4
-        head[:] |= 0<<6 # shift
+        head[-1] |= wait_last<<4
+        head[0] |= trigger_first<<5
+        head[:] |= time_shift<<6
+        #head[:] |= reserved<<8
         frame.append(head)
 
-        dt = np.diff(np.r_[0, times])*self.freq
-        # FIXME: shift
+        dt = np.diff(np.r_[0, times])*self.freq/(1<<time_shift)
         # FIXME: clipped intervals cumulatively skew
         # subsequent ones
         np.clip(dt, self.min_time, self.max_time, out=dt)
@@ -173,38 +190,61 @@ class Pdq(object):
             frame.append((v3>>32).astype("i2"))
 
         frame = np.rec.fromarrays(frame, byteorder="<") # interleave
-        data = bytes(frame.data)
-        if len(derivatives) == 3: # mode == 3:
-            assert len(data)/2 == (2+2+2+4+6+6)/2*len(voltages), (
-                  len(voltages), len(data))
-        logging.debug("frame shape %s len %i", frame.shape,
-                len(data))
+        length = len(frame.data.tobytes())
+        bytes_per_line = {0: 2+2+2, 1: 2+2+2+4, 2: 2+2+2+4+6, 3: 2+2+2+4+6+6}
+        assert length == bytes_per_line[len(derivatives)]*len(voltages), (
+                  len(voltages), length)
+        logging.debug("frame shape %s len %i", frame.shape, length)
         logging.debug("frame dtype %s", frame.dtype)
         logging.debug("frame %s", frame)
         #logging.debug("frame raw %s", repr(data))
-        head = struct.pack("<B B H", next_frame, repeat, frame.shape[0])
-        return head + data # memory buffer
+        return frame
 
-    def serialize_header(self, channel, mode, trigger, branch_lens):
-        branch_ends = list(np.cumsum(branch_lens))
-        # branch 7 always takes all data (0:end not
-        # branch_end[-2]:branch_end[-1])
-        data_len = int(branch_ends.pop())
-        assert data_len <= self.max_data
+    @staticmethod
+    def add_frame_header(frame, repeat, next):
+        head = struct.pack("<B B H", next, repeat, frame.shape[0])
+        logging.debug("frame header %r", head)
+        return head + frame.data.tobytes()
 
-        head = struct.pack("<B B B", 0x00, fpga, 0x10|dac)
-        head += struct.pack("<B B B", 0x08, mode, bool(trigger))
-        head += struct.pack("<B H", 0x02, 0x0000) # start addr
-        head += struct.pack("<B H", 0x06, data_len) # reg_len
-        for i, branch_end in enumerate(branch_ends):
-            head += struct.pack("<B H", 0x20|i, int(branch_end))
-        head += struct.pack("<B H", 0x01, data_len) # burst_len
-        head += struct.pack("<B", 0x04) # burst data follows
-        # head += struct.pack("<B", 0x03) # single data follows
-        logging.debug("header len %i", len(head))
-        logging.debug("header %r", head)
-        return head
-   
+    def combine_frames(self, frames):
+        lens = [len(frame)//2 for frame in frames]
+        mems = np.cumsum([len(frames)] + lens[:-1])
+        chunk = mems.astype("<u2").data.tobytes()
+        logging.debug("mem len %i", len(chunk))
+        logging.debug("mem %r", chunk)
+        for frame in frames:
+            chunk += frame
+        assert len(chunk) <= self.max_data
+        return chunk
+
+    def add_mem_header(self, board, dac, mem_adr, chunk):
+        length = len(chunk)
+        assert dac in range(self.num_dacs)
+        assert board in range(self.num_boards)
+        head = struct.pack("<B B H H", board, dac, mem_adr, length//2)
+        logging.debug("mem header %r", head)
+        return head + chunk
+
+    def multi_frame(self, times_voltages, channel, mode=3, repeat=1,
+            next=None, **frame_kwargs):
+        frames = []
+        for i, (t, v) in enumerate(times_voltages):
+            n = next is not None and next or i
+            frame = self.frame(t, v, derivatives=mode, **frame_kwargs)
+            frames.append(self.add_frame_header(frame, repeat=1, next=n))
+        data = self.combine_frames(frames)
+        board, dac = divmod(channel, self.num_dacs)
+        data = self.add_mem_header(board, dac, 0, data)
+        logging.debug("write len %i", len(data))
+        logging.debug("write %s", list(map(hex, data)))
+        return data
+
+    def single_frame(self, times, voltages, **kwargs):
+        """
+        interpolate, serialize and upload 8 irq data for one channel
+        """
+        return self.multi_frame([(times, voltages)], **kwargs)
+
     def write(self, *segments):
         """
         writes segments to device
@@ -212,30 +252,20 @@ class Pdq(object):
         pseudo-regex: (header branch*)*
         """
         for segment in segments:
+            segment = segment.replace(bytes([self.escape]),
+                    bytes([self.escape, self.escape]))
             written = self.dev.write(segment)
             if written < len(segment):
                 logging.error("wrote only %i of %i", written, len(segment))
 
-    def write_simple(self, times, voltages, channel, mode=3,
-            trigger=True):
-        """
-        interpolate, serialize and upload 8 irq data for one channel
-        """
-        assert len(voltages) == 8
-        data = []
-        branch_lens = []
-        for v in voltages:
-            if v is not None:
-                t, v, der = self.interpolate(times, v, mode)
-                logging.debug("data %s %s %s", t, v, der)
-                d = self.serialize_branch(v, t, *der)
-                data.append(d)
-                branch_lens.append(len(d)/2) # 16 bits
-            else:
-                branch_lens.append(0)
-        header = self.serialize_header(channel, mode, trigger, branch_lens)
-        self.write(header, *data)
+    def set_interrupt(self, board, channel, interrupt, addr):
+        data = struct.pack("<H", addr)
+        data = self.add_mem_header(board, channel, interrupt, data)
+        return self.write(data)
 
+    def write_cmd(self, cmd):
+        return self.write(self.cmd(cmd))
+    
 
 def main():
     import argparse
@@ -246,11 +276,14 @@ def main():
             help="device (FT245R) serial string [first]")
     parser.add_argument("-c", "--channel", default=0, type=int,
             help="channel: 3*fpga_num+dac_num [%(default)s]")
-    parser.add_argument("-b", "--branch", default=7, type=int,
-            help="branch number [%(default)s]")
+    parser.add_argument("-i", "--interrupt", default=0, type=int,
+            help="interrupt number [%(default)s]")
     parser.add_argument("-f", "--free", default=False,
             action="store_true",
-            help="untriggered, free running [%(default)s]")
+            help="soft triggered, free running [%(default)s]")
+    parser.add_argument("-n", "--disarm", default=False,
+            action="store_true",
+            help="disarm external trigger [%(default)s]")
     parser.add_argument("-t", "--times",
             default="np.linspace(0, 1e-3, 11)",
             help="sample times (s) [%(default)s]")
@@ -292,14 +325,19 @@ def main():
         fig.savefig(args.plot)
 
     dev = Pdq(serial=args.serial)
-    for channel in (args.channel == -1) and range(9) or [args.channel]:
-        if args.branch == -1:
-            # 8th branch (no 7) is always all data
-            v = [.1*branch+channel+voltages for branch in range(8)]
+    dev.write_cmd("ARM_DIS" if args.disarm else "ARM_EN")
+    dev.write_cmd("TRIGGER_EN" if args.free else "TRIGGER_DIS")
+
+    channels = (args.channel == -1) and range(9) or [args.channel]
+    for channel in channels:
+        if args.interrupt == -1:
+            v = [.1*interrupt+channel+voltages for interrupt in range(8)]
+            t = [times] * 8
+            data = dev.multi_frame(zip(t, v), channel, args.mode)
         else:
-            v = [None]*8
-            v[args.branch] = voltages
-        dev.prepare_simple(times, v, channel, args.mode, not args.free)
+            data = dev.single_frame(times, voltages, channel=channel,
+                    mode=args.mode)
+        dev.write(data)
 
 
 if __name__ == "__main__":

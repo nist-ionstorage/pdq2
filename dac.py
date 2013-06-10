@@ -8,7 +8,7 @@ from migen.flow.network import CompositeActor, DataFlowGraph
 line_layout = [
         ("typ", 4),
         ("wait", 1),
-        ("force", 1),
+        ("trigger", 1),
         ("shift", 4),
         ("reserved", 6),
         ("dt", 16),
@@ -64,7 +64,7 @@ class Parser(Module):
         mode = Cat(next_frame, repeat)
         length = Signal(16)
 
-        header = Cat(fp.typ, fp.wait, fp.force, fp.shift, fp.reserved)
+        header = Cat(fp.typ, fp.wait, fp.trigger, fp.shift, fp.reserved)
 
         states = dict((v, i) for i, v in enumerate("WAIT0 IRQ WAIT1 "
             "MODE LENGTH HEADER "
@@ -138,8 +138,8 @@ class Parser(Module):
                 If(interrupt != save_interrupt,
                     read.adr.eq(interrupt),
                     save_interrupt.eq(interrupt),
+                    fp.trigger.eq(1), # ?
                     state.eq(states["WAIT0"]),
-                    fp.force.eq(1), # ?
                 ).Elif(length <= 1,
                     If(repetitions >= repeat,
                         repetitions.eq(1),
@@ -173,8 +173,11 @@ class DacOut(Module):
         self.comb += self.data.eq(line.v0[-16:])
         dt_dec = Signal(16)
         line_dt_dec = Signal(16)
-        self.comb += self.line_in.ack.eq((line.dt <= 1) & (dt_dec <= 1) &
-                (self.line_in.payload.force | self.trigger | ~line.wait))
+        hold = Signal()
+        self.comb += hold.eq(line.wait & ~(self.trigger |
+                (self.line_in.stb & self.line_in.payload.trigger)))
+        self.comb += self.line_in.ack.eq((line.dt <= 1) & (dt_dec <= 1)
+                & ~hold)
         self.sync += [
                 If(dt_dec > 1,
                     dt_dec.eq(dt_dec - 1),
@@ -232,16 +235,17 @@ def main():
     import numpy as np
     from scipy import interpolate
     import pdq
+    pdq.Ftdi = pdq.FileFtdi
 
     #print(verilog.convert(Dac()))
 
     t = np.arange(0, 6) * .28e-6
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
-    p = pdq.Pdq("dac_test")
-    mem = bytes([0x01, 0x00]) + \
-            p.serialize_frame(t, v, derivatives=3,
-            trigger=True, next_frame=1, repeat=2)
-    mem = np.fromstring(mem, "<u2")
+    p = pdq.Pdq()
+    frame = p.frame(t, v, derivatives=3, wait_last=True)
+    frame = p.add_frame_header(frame, repeat=2, next=0)
+    mem = p.combine_frames([frame])
+    mem = list(np.fromstring(mem, "<u2"))
 
     tb = TB(mem)
     sim = Simulator(tb, TopLevel("dac.vcd"))
