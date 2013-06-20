@@ -2,7 +2,7 @@ from mibuild.generic_platform import *
 from mibuild.xilinx_ise import XilinxISEPlatform, CRG_SE
 
 _io = [
-        ("clk", 0, Pins("P80"), IOStandard("LVCMOS25")),
+        ("clk50", 0, Pins("P80"), IOStandard("LVCMOS25")),
 
         ("comm", 0,
             Subsignal("data", Pins(*
@@ -73,4 +73,4 @@ _io = [
 class Platform(XilinxISEPlatform):
     def __init__(self):
         XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,
-                lambda p: CRG_SE(p, "clk", None, 20.))
+                lambda p: CRG_SE(p, "clk50", None, 20.))

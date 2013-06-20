@@ -119,6 +119,10 @@ class Comm(Module):
         #g.add_connection(reader, pack) # no escaping
         cast = Cast(pack_layout(data_layout, 2), mem_layout)
         g.add_connection(pack, cast)
-        g.add_connection(cast, MemWriter(pads, dacs))
-        g.add_connection(unescaper, Ctrl(pads, dacs), "ob")
-        self.submodules.graph = CompositeActor(g) 
+        memwriter = MemWriter(pads, dacs)
+        g.add_connection(cast, memwriter)
+        ctrl = Ctrl(pads, dacs)
+        g.add_connection(unescaper, ctrl, "ob")
+        self.submodules.graph = CompositeActor(g)
+
+        self.comb += pack.reset.eq(ctrl.reset)

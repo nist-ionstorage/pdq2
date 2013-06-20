@@ -8,7 +8,9 @@ from comm import Comm
 
 class Soc(Module):
     def __init__(self, platform):
-        clk = ClockSignal()
+        self.clock_domains.cd_sys = ClockDomain()
+        clk_p = self.cd_sys.clk
+        clk_n = Signal()
         dacs = []
         for i, mem in enumerate((1<<13, 1<<13, 1<<12)):
             dac = Dac(mem_depth=mem)
@@ -17,20 +19,63 @@ class Soc(Module):
             pads = platform.request("dac", i)
             # FIXME: do we really need the inversion
             # would registering the output not be enough?
-            self.comb += pads.clk_p.eq(~clk), pads.clk_n.eq(clk)
+            self.comb += pads.clk_p.eq(clk_n), pads.clk_n.eq(clk_p)
             self.specials += Instance("OBUFDS",
-                    Instance.Input("I", ~clk),
+                    Instance.Parameter("CAPACITANCE", "DONT_CARE"),
+                    Instance.Parameter("IOSTANDARD", "DEFAULT"),
+                    Instance.Parameter("SLEW", "SLOW"),
+                    Instance.Input("I", clk_n),
                     Instance.Output("O", pads.data_clk_p),
                     Instance.Output("OB", pads.data_clk_n),
                     )
             for i in range(16):
                 self.specials += Instance("OBUFDS",
+                        Instance.Parameter("CAPACITANCE", "DONT_CARE"),
+                        Instance.Parameter("IOSTANDARD", "DEFAULT"),
+                        Instance.Parameter("SLEW", "SLOW"),
                         Instance.Input("I", ~dac.out.data[i]),
                         Instance.Output("O", pads.data_p[i]),
                         Instance.Output("OB", pads.data_n[i]),
                         )
 
         self.submodules.comm = Comm(platform.request("comm"), dacs)
+
+        clk50 = platform.request("clk50")
+        dcm_clk2x = Signal()
+        dcm_clk2x180 = Signal()
+        dcm_locked = Signal()
+        clkin_period = 20
+        self.specials += Instance("DCM_SP",
+                Instance.Parameter("CLKDV_DIVIDE", 2),
+                Instance.Parameter("CLKFX_DIVIDE", 1),
+                Instance.Parameter("CLKFX_MULTIPLY", 4),
+                Instance.Parameter("CLKIN_DIVIDE_BY_2", "FALSE"),
+                Instance.Parameter("CLKIN_PERIOD", clkin_period),
+                Instance.Parameter("CLK_FEEDBACK", "2X"),
+                Instance.Parameter("DLL_FREQUENCY_MODE", "LOW"),
+                Instance.Parameter("DFS_FREQUENCY_MODE", "LOW"),
+                Instance.Parameter("STARTUP_WAIT", "FALSE"),
+                Instance.Parameter("PHASE_SHIFT", 0),
+                Instance.Parameter("DUTY_CYCLE_CORRECTION", "TRUE"),
+                Instance.Input("RST", 0),
+                Instance.Input("PSEN", 0),
+                Instance.Input("PSINCDEC", 0),
+                Instance.Input("PSCLK", 0),
+                Instance.Input("CLKIN", clk50),
+                Instance.Output("LOCKED", dcm_locked),
+                Instance.Output("CLK2X", dcm_clk2x),
+                Instance.Output("CLK2X180", dcm_clk2x180),
+                Instance.Input("CLKFB", dcm_clk2x),
+                )
+        self.specials += Instance("BUFG",
+                Instance.Input("I", dcm_clk2x),
+                Instance.Output("O", clk_p),
+                )
+        self.specials += Instance("BUFG",
+                Instance.Input("I", dcm_clk2x180),
+                Instance.Output("O", clk_n),
+                )
+
 
 
 class TB(Module):
