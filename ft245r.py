@@ -50,10 +50,11 @@ class Ft245r_rx(Module):
         
         self.comb += pads.rdl.eq(~pads.rd_out) # master to all, enslave this
 
-        t = Signal(max=4)
+        wait = 5
+        t = Signal(max=wait+1)
 
         self.sync += [
-                If(t < 3,
+                If(t < wait,
                     t.eq(t + 1),
                 ).Elif(pads.rd_in, # master to all
                     do.stb.eq(1),
