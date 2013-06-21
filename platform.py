@@ -74,3 +74,10 @@ class Platform(XilinxISEPlatform):
     def __init__(self):
         XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,
                 lambda p: CRG_SE(p, "clk50", "reset", 20.))
+
+    def finalize(self):
+        self.add_platform_command("""
+NET "{clk50}" TNM_NET = "grp_clk50";
+TIMESPEC "ts_grp_clk50" = PERIOD "grp_clk50" 20 ns HIGH 50%;
+""", clk50=self.lookup_request("clk50"))
+ 
