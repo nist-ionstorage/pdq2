@@ -5,36 +5,6 @@ from migen.flow.actor import Source, Sink
 from migen.flow.network import CompositeActor, DataFlowGraph
 
 
-# MEM:
-#   IRQ0_ADR 16
-#   ...
-#   IRQ7_ADR 16
-#   ADDITIONAL_ADR 16
-#   ...
-#   FRAME
-#   ...
-# FRAME:
-#   MODE 16:
-#       NEXT_FRAME 8
-#       REPEAT 8
-#   LENGTH 16
-#   LINE
-#   ...
-# LINE:
-#   HEADER 16:
-#     TYP 4
-#     WAIT 1
-#     TRIGGER 1
-#     SHIFT 4
-#     AUX 4
-#     RESERVED 2
-#   DT 16
-#   (V0 16)
-#   (V1 32)
-#   (V2 48)
-#   (V3 48)
-
-
 line_layout = [
         ("typ", 4),
         ("wait", 1),
