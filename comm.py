@@ -36,7 +36,7 @@ class MemWriter(Module):
         dac_adr = Signal(2)
         self.comb += dac_adr.eq(dev_adr[8:8+flen(dac_adr)])
         listen = Signal()
-        self.comb += listen.eq(board_adr == pads.adr)
+        self.comb += listen.eq(board_adr == ~pads.adr)
         data_len = Signal(16)
         mem_adr = Signal(16)
         self.comb += [mem.adr.eq(mem_adr[:flen(mem.adr)]) for mem in mems]
@@ -77,6 +77,7 @@ class Ctrl(Module):
         self.comb += self.command_in.ack.eq(1) # can alway accept
         self.busy = Signal()
         self.comb += self.busy.eq(~self.command_in.ack | self.command_in.stb)
+        #self.comb += busy.eq(Cat(*(dac.out.busy for dac in dacs)) != 0)
         
         self.reset = Signal()
         self.comb += pads.reset.eq(self.reset)
@@ -88,9 +89,10 @@ class Ctrl(Module):
             self.comb += dac.out.trigger.eq(pads.trigger | self.trigger)
             self.comb += dac.out.arm.eq(self.arm)
 
-        #self.comb += busy.eq(Cat(*(dac.out.busy for dac in dacs)) != 0)
-        self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)
-        self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
+        #self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)
+        self.comb += pads.aux.eq(self.command_in.stb)
+        #self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
+        self.comb += pads.go2_out.eq(dacs[0].out.busy)
        
         commands = {
                 "RESET_EN":    (0x00, [

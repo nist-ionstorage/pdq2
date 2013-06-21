@@ -123,7 +123,7 @@ class Pdq(object):
     @staticmethod
     def interpolate(times, voltages, mode):
         """
-        calculate b-spframe interpolation derivatives for voltage data
+        calculate b-spline interpolation derivatives for voltage data
         according to interpolation mode
         returns times, voltages and derivatives suitable for passing to
         frame()
@@ -132,15 +132,15 @@ class Pdq(object):
         here)
         """
         derivatives = []
-        if mode >= 2:
-            spframe = interpolate.splrep(times, voltages, s=0, k=mode-1)
-            derivatives = [interpolate.splev(times[:-1], spframe, der=i+1)
-                    for i in range(mode-1)]
+        if mode > 1:
+            spline = interpolate.splrep(times, voltages, s=0, k=mode-1)
+            derivatives = [interpolate.splev(times[:-1], spline, der=i)
+                    for i in range(1, mode)]
         voltages = voltages[:-1]
         times = times[1:]
         return times, voltages, derivatives
 
-    def frame(self, times, voltages, derivatives=None, aux=None,
+    def frame(self, times, voltages, derivatives=4, aux=None,
             time_shift=0, trigger_first=False, wait_last=True):
         """
         serialize frame data
@@ -228,7 +228,7 @@ class Pdq(object):
         data = self.combine_frames(frames)
         board, dac = divmod(channel, self.num_dacs)
         data = self.add_mem_header(board, dac, 0, data)
-        logging.debug("write %s, len %i", list(map(hex, data)), len(data))
+        #logging.debug("write %s, len %i", list(map(hex, data)), len(data))
         return data
 
     def single_frame(self, times, voltages, **kwargs):
@@ -306,10 +306,10 @@ def main():
     if args.plot:
         from matplotlib import pyplot as plt
         times -= times[0]
-        spframe = interpolate.splrep(times, voltages,
+        spline = interpolate.splrep(times, voltages,
                 s=0, k=args.mode-1)
         ttimes = np.arange(0, times[-1], 1/Pdq.freq)
-        vvoltages = interpolate.splev(ttimes, spframe, der=0)
+        vvoltages = interpolate.splev(ttimes, spline, der=0)
         fig, ax0 = plt.subplots()
         ax0.plot(times, voltages, "xk", label="points")
         ax0.plot(ttimes, vvoltages, ",b", label="interpolation")
@@ -317,17 +317,21 @@ def main():
 
     dev = Pdq(serial=args.serial)
     channels = (args.channel == -1) and range(9) or [args.channel]
+    dev.write_cmd("RESET_EN")
+    dev.write_cmd("RESET_DIS")
     for channel in channels:
         if args.interrupt == -1:
             v = [.1*interrupt+channel+voltages for interrupt in range(8)]
             t = [times] * 8
-            data = dev.multi_frame(zip(t, v), channel, args.mode)
+            data = dev.multi_frame(zip(t, v), channel, args.mode,
+                    derivatives=args.mode)
         else:
             data = dev.single_frame(times, voltages, channel=channel,
                     derivatives=args.mode)
         dev.write(data)
     dev.write_cmd("ARM_DIS" if args.disarm else "ARM_EN")
     dev.write_cmd("TRIGGER_EN" if args.free else "TRIGGER_DIS")
+    
 
 if __name__ == "__main__":
     main()

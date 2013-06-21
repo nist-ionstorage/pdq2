@@ -21,18 +21,14 @@ class Soc(Module):
             # would registering the output not be enough?
             self.comb += pads.clk_p.eq(clk_n), pads.clk_n.eq(clk_p)
             self.specials += Instance("OBUFDS",
-                    Instance.Parameter("CAPACITANCE", "DONT_CARE"),
-                    Instance.Parameter("IOSTANDARD", "DEFAULT"),
-                    Instance.Parameter("SLEW", "SLOW"),
+                    Instance.Parameter("IOSTANDARD", "LVDS_25"),
                     Instance.Input("I", clk_n),
                     Instance.Output("O", pads.data_clk_p),
                     Instance.Output("OB", pads.data_clk_n),
                     )
             for i in range(16):
                 self.specials += Instance("OBUFDS",
-                        Instance.Parameter("CAPACITANCE", "DONT_CARE"),
-                        Instance.Parameter("IOSTANDARD", "DEFAULT"),
-                        Instance.Parameter("SLEW", "SLOW"),
+                        Instance.Parameter("IOSTANDARD", "LVDS_25"),
                         Instance.Input("I", ~dac.out.data[i]),
                         Instance.Output("O", pads.data_p[i]),
                         Instance.Output("OB", pads.data_n[i]),
@@ -40,42 +36,45 @@ class Soc(Module):
 
         self.submodules.comm = Comm(platform.request("comm"), dacs)
 
-        clk50 = platform.request("clk50")
-        dcm_clk2x = Signal()
-        dcm_clk2x180 = Signal()
-        dcm_locked = Signal()
-        clkin_period = 20
-        self.specials += Instance("DCM_SP",
-                Instance.Parameter("CLKDV_DIVIDE", 2),
-                Instance.Parameter("CLKFX_DIVIDE", 1),
-                Instance.Parameter("CLKFX_MULTIPLY", 4),
-                Instance.Parameter("CLKIN_DIVIDE_BY_2", "FALSE"),
-                Instance.Parameter("CLKIN_PERIOD", clkin_period),
-                Instance.Parameter("CLK_FEEDBACK", "2X"),
-                Instance.Parameter("DLL_FREQUENCY_MODE", "LOW"),
-                Instance.Parameter("DFS_FREQUENCY_MODE", "LOW"),
-                Instance.Parameter("STARTUP_WAIT", "FALSE"),
-                Instance.Parameter("PHASE_SHIFT", 0),
-                Instance.Parameter("DUTY_CYCLE_CORRECTION", "TRUE"),
-                Instance.Input("RST", 0),
-                Instance.Input("PSEN", 0),
-                Instance.Input("PSINCDEC", 0),
-                Instance.Input("PSCLK", 0),
-                Instance.Input("CLKIN", clk50),
-                Instance.Output("LOCKED", dcm_locked),
-                Instance.Output("CLK2X", dcm_clk2x),
-                Instance.Output("CLK2X180", dcm_clk2x180),
-                Instance.Input("CLKFB", dcm_clk2x),
-                )
-        self.specials += Instance("BUFG",
-                Instance.Input("I", dcm_clk2x),
-                Instance.Output("O", clk_p),
-                )
-        self.specials += Instance("BUFG",
-                Instance.Input("I", dcm_clk2x180),
-                Instance.Output("O", clk_n),
-                )
-
+        if False:
+            clk50 = platform.request("clk50")
+            dcm_clk2x = Signal()
+            dcm_clk2x180 = Signal()
+            dcm_locked = Signal()
+            clkin_period = 20
+            self.specials += Instance("DCM_SP",
+                    Instance.Parameter("CLKDV_DIVIDE", 2),
+                    Instance.Parameter("CLKFX_DIVIDE", 1),
+                    Instance.Parameter("CLKFX_MULTIPLY", 4),
+                    Instance.Parameter("CLKIN_DIVIDE_BY_2", "FALSE"),
+                    Instance.Parameter("CLKIN_PERIOD", clkin_period),
+                    Instance.Parameter("CLK_FEEDBACK", "2X"),
+                    Instance.Parameter("DLL_FREQUENCY_MODE", "LOW"),
+                    Instance.Parameter("DFS_FREQUENCY_MODE", "LOW"),
+                    Instance.Parameter("STARTUP_WAIT", "FALSE"),
+                    Instance.Parameter("PHASE_SHIFT", 0),
+                    Instance.Parameter("DUTY_CYCLE_CORRECTION", "TRUE"),
+                    Instance.Input("RST", 0),
+                    Instance.Input("PSEN", 0),
+                    Instance.Input("PSINCDEC", 0),
+                    Instance.Input("PSCLK", 0),
+                    Instance.Input("CLKIN", clk50),
+                    Instance.Output("LOCKED", dcm_locked),
+                    Instance.Output("CLK2X", dcm_clk2x),
+                    Instance.Output("CLK2X180", dcm_clk2x180),
+                    Instance.Input("CLKFB", dcm_clk2x),
+                    )
+            self.specials += Instance("BUFG",
+                    Instance.Input("I", dcm_clk2x),
+                    Instance.Output("O", clk_p),
+                    )
+            self.specials += Instance("BUFG",
+                    Instance.Input("I", dcm_clk2x180),
+                    Instance.Output("O", clk_n),
+                    )
+        else:
+            clk50 = platform.request("clk50")
+            self.comb += clk_p.eq(clk50), clk_n.eq(~clk50)
 
 
 class TB(Module):
@@ -96,7 +95,7 @@ class TB(Module):
 
     def __init__(self, mem=None):
         dacs = []
-        for i in range(2):
+        for i in range(3):
             dac = Dac()
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)
@@ -107,9 +106,9 @@ class TB(Module):
 
     def do_simulation(self, s):
         if s.cycle_counter == 0:
-            s.wr(self.comm_pads.interrupt, 0)
-            s.wr(self.comm_pads.adr, 1)
-            #s.wr(self.comm_pads.trigger, 1)
+            s.wr(self.comm_pads.interrupt, 7) # pullup
+            s.wr(self.comm_pads.adr, 15) # active low, pullup
+            s.wr(self.comm_pads.trigger, 1) # pullup
         self.outputs.append(s.rd(self.dac1.out.data))
 
 
@@ -124,12 +123,12 @@ def main():
     t = np.arange(11)*.26e-6
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
-    mem = p.single_frame(t, v, channel=4, derivatives=4,
-            aux=t>.5e-6, repeat=2, wait_last=True, time_shift=0)
-    mem = (p.cmd("RESET_EN") + mem + p.cmd("RESET_DIS")
+    mem = p.single_frame(t, v, channel=1, derivatives=4,
+            aux=t>.5e-6, repeat=255, wait_last=True, time_shift=0)
+    mem = (p.cmd("RESET_EN") + p.cmd("RESET_DIS") + mem
             + p.cmd("ARM_EN"))
 
-    n = 3000
+    n = 30000
     tb = TB(list(mem))
     sim = Simulator(tb, TopLevel("top.vcd"))
     sim.run(n)
