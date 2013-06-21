@@ -2,7 +2,7 @@ from migen.fhdl.std import *
 from migen.flow.actor import Source, Sink
 from migen.flow.transactions import Token
 from migen.actorlib.sim import SimActor
-from migen.sim.generic import Simulator
+from migen.sim.generic import Simulator, TopLevel
 from migen.flow.network import DataFlowGraph, CompositeActor
 
 
@@ -12,7 +12,7 @@ class Unescaper(Module):
         i = Sink(layout)
         oa, ob = Source(layout), Source(layout)
         self.i, self.oa, self.ob = i, oa, ob
-        self.comb += [oa.payload.eq(i.payload), ob.payload.eq(i.payload)]
+        self.comb += oa.payload.eq(i.payload), ob.payload.eq(i.payload)
 
         self.busy = Signal()
         self.comb += self.busy.eq(0)
@@ -87,6 +87,6 @@ if __name__ == "__main__":
     aexpect = [1, 2, 4, 0xaa, 5, 6, 0xaa, 8, 0xaa, 0xaa, 9, 10]
     bexpect = [3, 7]
     tb = EscapeTB(data)
-    Simulator(tb).run()
+    Simulator(tb, TopLevel("escape.vcd")).run()
     assert tb.asink.recv == aexpect, (tb.asink.recv, aexpect)
     assert tb.bsink.recv == bexpect, (tb.bsink.recv, bexpect)
