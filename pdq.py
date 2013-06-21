@@ -4,9 +4,17 @@
 # Robert Jordens <jordens@gmail.com>, 2012
 #
 
-import logging, struct
+import logging, struct, sys
 import numpy as np
 from scipy import interpolate
+
+
+if sys.version_info.major >= 3:
+    def array_to_bin(a):
+        return a.data.tobytes()
+else:
+    def array_to_bin(a):
+        return str(a.data)
 
 
 class PyFtdi(object):
@@ -51,7 +59,6 @@ except ImportError:
         Ftdi = D2xxFtdi
     except ImportError:
         Ftdi = FileFtdi
-
 
 
 class Pdq(object):
@@ -185,7 +192,7 @@ class Pdq(object):
                 frame.append((v>>32).astype("i%i" % (byt-4)))
 
         frame = np.rec.fromarrays(frame, byteorder="<") # interleave
-        data_length = len(frame.data.tobytes())
+        data_length = len(array_to_bin(frame))
         logging.debug("frame %s dtype %s shape %s length %s",
                 frame, frame.dtype, frame.shape, data_length)
         bytes_per_line = {0: 2+2+2, 1: 2+2+2+4, 2: 2+2+2+4+6, 3: 2+2+2+4+6+6}
@@ -198,12 +205,12 @@ class Pdq(object):
     def add_frame_header(frame, repeat, next):
         head = struct.pack("<BBH", next, repeat, frame.shape[0])
         logging.debug("frame header %r", head)
-        return head + frame.data.tobytes()
+        return head + array_to_bin(frame)
 
     def combine_frames(self, frames):
         lens = [len(frame)//2 for frame in frames[:-1]] # 16 bits
         mems = np.cumsum([len(frames)] + lens)
-        chunk = mems.astype("<u2").data.tobytes()
+        chunk = array_to_bin(mems.astype("<u2"))
         logging.debug("mem len %i, %r", len(chunk), chunk)
         for frame in frames:
             chunk += frame
