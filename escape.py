@@ -1,6 +1,4 @@
 from migen.fhdl.std import *
-from migen.genlib.record import Record
-from migen.genlib.fsm import FSM
 from migen.flow.actor import Source, Sink
 from migen.flow.transactions import Token
 from migen.actorlib.sim import SimActor

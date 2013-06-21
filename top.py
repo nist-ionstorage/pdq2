@@ -36,45 +36,47 @@ class Soc(Module):
 
         self.submodules.comm = Comm(platform.request("comm"), dacs)
 
-        if False:
-            clk50 = platform.request("clk50")
-            dcm_clk2x = Signal()
-            dcm_clk2x180 = Signal()
-            dcm_locked = Signal()
-            clkin_period = 20
-            self.specials += Instance("DCM_SP",
-                    Instance.Parameter("CLKDV_DIVIDE", 2),
-                    Instance.Parameter("CLKFX_DIVIDE", 1),
-                    Instance.Parameter("CLKFX_MULTIPLY", 4),
-                    Instance.Parameter("CLKIN_DIVIDE_BY_2", "FALSE"),
-                    Instance.Parameter("CLKIN_PERIOD", clkin_period),
-                    Instance.Parameter("CLK_FEEDBACK", "2X"),
-                    Instance.Parameter("DLL_FREQUENCY_MODE", "LOW"),
-                    Instance.Parameter("DFS_FREQUENCY_MODE", "LOW"),
-                    Instance.Parameter("STARTUP_WAIT", "FALSE"),
-                    Instance.Parameter("PHASE_SHIFT", 0),
-                    Instance.Parameter("DUTY_CYCLE_CORRECTION", "TRUE"),
-                    Instance.Input("RST", 0),
-                    Instance.Input("PSEN", 0),
-                    Instance.Input("PSINCDEC", 0),
-                    Instance.Input("PSCLK", 0),
-                    Instance.Input("CLKIN", clk50),
-                    Instance.Output("LOCKED", dcm_locked),
-                    Instance.Output("CLK2X", dcm_clk2x),
-                    Instance.Output("CLK2X180", dcm_clk2x180),
-                    Instance.Input("CLKFB", dcm_clk2x),
-                    )
-            self.specials += Instance("BUFG",
-                    Instance.Input("I", dcm_clk2x),
-                    Instance.Output("O", clk_p),
-                    )
-            self.specials += Instance("BUFG",
-                    Instance.Input("I", dcm_clk2x180),
-                    Instance.Output("O", clk_n),
-                    )
-        else:
-            clk50 = platform.request("clk50")
-            self.comb += clk_p.eq(clk50), clk_n.eq(~clk50)
+        clkin = platform.request("clk50")
+        clkin_period = 20
+        dcm_clk2x = Signal()
+        dcm_clk2x180 = Signal()
+        dcm_locked = Signal()
+        self.specials += Instance("DCM_SP",
+                Instance.Parameter("CLKDV_DIVIDE", 2),
+                Instance.Parameter("CLKFX_DIVIDE", 1),
+                Instance.Parameter("CLKFX_MULTIPLY", 4),
+                Instance.Parameter("CLKIN_DIVIDE_BY_2", "FALSE"),
+                Instance.Parameter("CLKIN_PERIOD", clkin_period),
+                Instance.Parameter("CLK_FEEDBACK", "2X"),
+                Instance.Parameter("DLL_FREQUENCY_MODE", "LOW"),
+                Instance.Parameter("DFS_FREQUENCY_MODE", "LOW"),
+                Instance.Parameter("STARTUP_WAIT", "FALSE"),
+                Instance.Parameter("PHASE_SHIFT", 0),
+                Instance.Parameter("DUTY_CYCLE_CORRECTION", "TRUE"),
+                Instance.Input("RST", 0),
+                Instance.Input("PSEN", 0),
+                Instance.Input("PSINCDEC", 0),
+                Instance.Input("PSCLK", 0),
+                Instance.Input("CLKIN", clkin),
+                Instance.Output("LOCKED", dcm_locked),
+                Instance.Output("CLK2X", dcm_clk2x),
+                Instance.Output("CLK2X180", dcm_clk2x180),
+                Instance.Input("CLKFB", clk_p),
+                )
+        self.specials += Instance("BUFG",
+                Instance.Input("I", dcm_clk2x),
+                Instance.Output("O", clk_p),
+                )
+        self.specials += Instance("BUFG",
+                Instance.Input("I", dcm_clk2x180),
+                Instance.Output("O", clk_n),
+                )
+        #clk50 = platform.request("clk50")
+        #self.comb += clk_p.eq(clk50), clk_n.eq(~clk50)
+        
+        sys_rst = ResetSignal()
+        self.comb += sys_rst.eq(self.comm.ctrl.reset)
+
 
 
 class TB(Module):
@@ -114,6 +116,7 @@ class TB(Module):
 
 def main():
     from migen.sim.generic import Simulator, TopLevel
+    from migen.sim.icarus import Runner
     from matplotlib import pyplot as plt
     import numpy as np
 
@@ -124,16 +127,16 @@ def main():
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
     mem = p.single_frame(t, v, channel=1, derivatives=4,
-            aux=t>.5e-6, repeat=255, wait_last=True, time_shift=0)
+            aux=t>.5e-6, repeat=2, wait_last=True, time_shift=0)
     mem = (p.cmd("RESET_EN") + p.cmd("RESET_DIS") + mem
             + p.cmd("ARM_EN"))
-
-    n = 30000
+    print(repr(mem))
+    n = 10000
     tb = TB(list(mem))
-    sim = Simulator(tb, TopLevel("top.vcd"))
+    sim = Simulator(tb, TopLevel("top.vcd", clk_period=10)) #, Runner(keep_files=True))
     sim.run(n)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
-    tim = np.arange(out.shape[0])/50e6
+    tim = np.arange(out.shape[0])/p.freq
     plt.plot(t, v)
     plt.plot(tim, out)
     plt.show()

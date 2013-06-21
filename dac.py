@@ -266,13 +266,13 @@ def main():
     n = 200
     sim.run(n)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
-    tim = np.arange(out.shape[0])/50e6
+    tim = np.arange(out.shape[0])/p.freq
     spframe = interpolate.splrep(t, v, s=0, k=3)
     tt = np.arange(t[0], t[-1], 1/p.freq)
     vv = interpolate.splev(tt, spframe, der=0)
     plt.plot(t, v, "xk")
     plt.plot(tt, vv, ",g")
-    plt.plot(tim-30/50e6, out, "-r")
+    plt.plot(tim-30/p.freq, out, "-r")
     plt.show()
 
 

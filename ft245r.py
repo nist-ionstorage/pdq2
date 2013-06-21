@@ -1,3 +1,5 @@
+import random
+
 from migen.fhdl.std import *
 from migen.flow.actor import Source
 
@@ -12,25 +14,28 @@ class SimFt245r_rx(Module):
 
     def do_simulation(self, s):
         if self.state == "init":
-            self.wait += 1
-            s.wr(self.pads.rxfl, 1)
-            if self.wait >= 1:
+            if self.wait == 0:
                 self.wait = 0
                 self.state = "fill"
+            else:
+                self.wait -= 1
+                s.wr(self.pads.rxfl, 1)
         elif self.state == "fill":
             if self.data:
                 s.wr(self.pads.rxfl, 0)
                 if s.rd(self.pads.rdl) == 0:
                     self.state = "setup"
+                    self.wait = 2
         elif self.state == "setup":
-            self.wait += 1
-            if self.wait >= 2:
+            if self.wait == 2:
                 s.wr(self.pads.data, self.data.pop(0))
                 self.wait = 0
                 self.state = "hold"
+            else:
+                self.wait -= 1
         elif self.state == "hold":
             if s.rd(self.pads.rdl) == 1:
-                s.wr(self.pads.rxfl, 1)
+                self.wait = random.choice([0, 3, 20])
                 self.state = "init"
 
 
@@ -50,7 +55,7 @@ class Ft245r_rx(Module):
         
         self.comb += pads.rdl.eq(~pads.rd_out) # master to all, enslave this
 
-        wait = 5
+        wait = 7
         t = Signal(max=wait+1)
 
         self.sync += [

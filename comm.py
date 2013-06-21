@@ -31,9 +31,9 @@ class MemWriter(Module):
         self.specials += mems
 
         dev_adr = Signal(16)
-        board_adr = Signal(4)
+        board_adr = Signal(flen(pads.adr))
         self.comb += board_adr.eq(dev_adr[:flen(board_adr)])
-        dac_adr = Signal(2)
+        dac_adr = Signal(max=len(dacs))
         self.comb += dac_adr.eq(dev_adr[8:8+flen(dac_adr)])
         listen = Signal()
         self.comb += listen.eq(board_adr == ~pads.adr)
@@ -77,7 +77,6 @@ class Ctrl(Module):
         self.comb += self.command_in.ack.eq(1) # can alway accept
         self.busy = Signal()
         self.comb += self.busy.eq(~self.command_in.ack | self.command_in.stb)
-        #self.comb += busy.eq(Cat(*(dac.out.busy for dac in dacs)) != 0)
         
         self.reset = Signal()
         self.comb += pads.reset.eq(self.reset)
@@ -89,14 +88,13 @@ class Ctrl(Module):
             self.comb += dac.out.trigger.eq(pads.trigger | self.trigger)
             self.comb += dac.out.arm.eq(self.arm)
 
-        #self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)
-        self.comb += pads.aux.eq(self.command_in.stb)
+        self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)
         #self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
-        self.comb += pads.go2_out.eq(dacs[0].out.busy)
+        self.comb += pads.go2_out.eq(Cat(*(~dac.out.busy for dac in
+            dacs)) != 0)
        
         commands = {
-                "RESET_EN":    (0x00, [
-                    self.reset.eq(1), self.trigger.eq(0), self.arm.eq(0)]),
+                "RESET_EN":    (0x00, [self.reset.eq(1)]),
                 "RESET_DIS":   (0x01, [self.reset.eq(0)]),
                 "TRIGGER_EN":  (0x02, [self.trigger.eq(1)]),
                 "TRIGGER_DIS": (0x03, [self.trigger.eq(0)]),
@@ -121,10 +119,8 @@ class Comm(Module):
         #g.add_connection(reader, pack) # no escaping
         cast = Cast(pack_layout(data_layout, 2), mem_layout)
         g.add_connection(pack, cast)
-        memwriter = MemWriter(pads, dacs)
+        self.memwriter = memwriter = MemWriter(pads, dacs)
         g.add_connection(cast, memwriter)
-        ctrl = Ctrl(pads, dacs)
+        self.ctrl = ctrl = Ctrl(pads, dacs)
         g.add_connection(unescaper, ctrl, "ob")
         self.submodules.graph = CompositeActor(g)
-
-        self.comb += pack.reset.eq(ctrl.reset)

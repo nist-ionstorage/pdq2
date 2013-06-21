@@ -73,4 +73,4 @@ _io = [
 class Platform(XilinxISEPlatform):
     def __init__(self):
         XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,
-                lambda p: CRG_SE(p, "clk50", None, 20.))
+                lambda p: CRG_SE(p, "clk50", "reset", 20.))

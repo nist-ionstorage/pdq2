@@ -4,17 +4,9 @@
 # Robert Jordens <jordens@gmail.com>, 2012
 #
 
-import logging, struct, sys
+import logging, struct
 import numpy as np
 from scipy import interpolate
-
-
-if sys.version_info.major >= 3:
-    def array_to_bin(a):
-        return a.data.tobytes()
-else:
-    def array_to_bin(a):
-        return str(a.data)
 
 
 class PyFtdi(object):
@@ -67,21 +59,21 @@ class Pdq(object):
     """
     range = 1<<15 # signed 16 bit DAC
     scale = range/10. # LSB/V
-    freq = 50e6 # samples/s
+    freq = 100e6 # samples/s
     min_time = 11 # processing time for a mode=4 point
     max_time = range # signed 16 bit timer
     num_boards = 3
     num_dacs = 3
     max_data = 8*(1<<10) # 6144 data buffer size per channel
-    escape = 0xaa
+    escape = b"\xaa"
 
     commands = {
-            "RESET_EN":    0x00,
-            "RESET_DIS":   0x01,
-            "TRIGGER_EN":  0x02,
-            "TRIGGER_DIS": 0x03,
-            "ARM_EN":      0x04,
-            "ARM_DIS":     0x05,
+            "RESET_EN":    b"\x00",
+            "RESET_DIS":   b"\x01",
+            "TRIGGER_EN":  b"\x02",
+            "TRIGGER_DIS": b"\x03",
+            "ARM_EN":      b"\x04",
+            "ARM_DIS":     b"\x05",
             }
         
     # DEV_ADR:
@@ -125,7 +117,7 @@ class Pdq(object):
         self.dev = Ftdi(serial)
 
     def cmd(self, cmd):
-        return bytes([self.escape, self.commands[cmd]])
+        return bytes(self.escape + self.commands[cmd])
 
     @staticmethod
     def interpolate(times, voltages, mode):
@@ -141,7 +133,7 @@ class Pdq(object):
         derivatives = []
         if mode > 1:
             spline = interpolate.splrep(times, voltages, s=0, k=mode-1)
-            derivatives = [interpolate.splev(times[:-1], spline, der=i)
+            derivatives += [interpolate.splev(times[:-1], spline, der=i)
                     for i in range(1, mode)]
         voltages = voltages[:-1]
         times = times[1:]
@@ -178,7 +170,7 @@ class Pdq(object):
         # FIXME: clipped intervals cumulatively skew
         # subsequent ones
         np.clip(dt, self.min_time, self.max_time, out=dt)
-        frame.append(dt.astype("i2"))
+        frame.append(dt.astype("u2"))
 
         byts = [2, 4, 6, 6]
         for i, (v, byt) in enumerate(zip(voltages, byts)):
@@ -192,7 +184,7 @@ class Pdq(object):
                 frame.append((v>>32).astype("i%i" % (byt-4)))
 
         frame = np.rec.fromarrays(frame, byteorder="<") # interleave
-        data_length = len(array_to_bin(frame))
+        data_length = len(bytes(frame.data))
         logging.debug("frame %s dtype %s shape %s length %s",
                 frame, frame.dtype, frame.shape, data_length)
         bytes_per_line = {0: 2+2+2, 1: 2+2+2+4, 2: 2+2+2+4+6, 3: 2+2+2+4+6+6}
@@ -205,12 +197,12 @@ class Pdq(object):
     def add_frame_header(frame, repeat, next):
         head = struct.pack("<BBH", next, repeat, frame.shape[0])
         logging.debug("frame header %r", head)
-        return head + array_to_bin(frame)
+        return head + bytes(frame.data)
 
     def combine_frames(self, frames):
         lens = [len(frame)//2 for frame in frames[:-1]] # 16 bits
         mems = np.cumsum([len(frames)] + lens)
-        chunk = array_to_bin(mems.astype("<u2"))
+        chunk = bytes(mems.astype("<u2").data)
         logging.debug("mem len %i, %r", len(chunk), chunk)
         for frame in frames:
             chunk += frame
@@ -250,8 +242,7 @@ class Pdq(object):
         """
         for segment in segments:
             # escape escape
-            segment = segment.replace(bytes([self.escape]),
-                    bytes([self.escape, self.escape]))
+            segment = segment.replace(self.escape, self.escape + self.escape)
             written = self.dev.write(segment)
             if written < len(segment):
                 logging.error("wrote only %i of %i", written, len(segment))
@@ -313,31 +304,33 @@ def main():
     if args.plot:
         from matplotlib import pyplot as plt
         times -= times[0]
-        spline = interpolate.splrep(times, voltages,
-                s=0, k=args.mode-1)
-        ttimes = np.arange(0, times[-1], 1/Pdq.freq)
-        vvoltages = interpolate.splev(ttimes, spline, der=0)
         fig, ax0 = plt.subplots()
         ax0.plot(times, voltages, "xk", label="points")
-        ax0.plot(ttimes, vvoltages, ",b", label="interpolation")
+        if args.mode > 1:
+            spline = interpolate.splrep(times, voltages,
+                    s=0, k=args.mode-1)
+            ttimes = np.arange(0, times[-1], 1/Pdq.freq)
+            vvoltages = interpolate.splev(ttimes, spline, der=0)
+            ax0.plot(ttimes, vvoltages, ",b", label="interpolation")
         fig.savefig(args.plot)
 
     dev = Pdq(serial=args.serial)
     channels = (args.channel == -1) and range(9) or [args.channel]
-    dev.write_cmd("RESET_EN")
-    dev.write_cmd("RESET_DIS")
+    data = b""
+    data += dev.cmd("RESET_EN")
+    data += dev.cmd("RESET_DIS")
     for channel in channels:
         if args.interrupt == -1:
             v = [.1*interrupt+channel+voltages for interrupt in range(8)]
             t = [times] * 8
-            data = dev.multi_frame(zip(t, v), channel, args.mode,
+            data += dev.multi_frame(zip(t, v), channel, args.mode,
                     derivatives=args.mode)
         else:
-            data = dev.single_frame(times, voltages, channel=channel,
+            data += dev.single_frame(times, voltages, channel=channel,
                     derivatives=args.mode)
-        dev.write(data)
-    dev.write_cmd("ARM_DIS" if args.disarm else "ARM_EN")
-    dev.write_cmd("TRIGGER_EN" if args.free else "TRIGGER_DIS")
+    data += dev.cmd("ARM_DIS" if args.disarm else "ARM_EN")
+    data += dev.cmd("TRIGGER_EN" if args.free else "TRIGGER_DIS")
+    dev.write(data)
     
 
 if __name__ == "__main__":
