@@ -228,6 +228,8 @@ class Pdq(object):
         board, dac = divmod(channel, self.num_dacs)
         data = self.add_mem_header(board, dac, 0, data)
         #logging.debug("write %s, len %i", list(map(hex, data)), len(data))
+        # escape escape
+        data = data.replace(self.escape, self.escape + self.escape)
         return data
 
     def single_frame(self, times, voltages, **kwargs):
@@ -241,8 +243,8 @@ class Pdq(object):
         writes data segments to device
         """
         for segment in segments:
-            # escape escape
-            segment = segment.replace(self.escape, self.escape + self.escape)
+            #logging.debug("write %s, len %i", list(map(hex, segment)),
+            #    len(segment)) 
             written = self.dev.write(segment)
             if written < len(segment):
                 logging.error("wrote only %i of %i", written, len(segment))
@@ -315,10 +317,10 @@ def main():
         fig.savefig(args.plot)
 
     dev = Pdq(serial=args.serial)
-    channels = (args.channel == -1) and range(9) or [args.channel]
+    dev.write_cmd("RESET_EN")
     data = b""
-    data += dev.cmd("RESET_EN")
-    data += dev.cmd("RESET_DIS")
+    #data += dev.cmd("RESET_DIS")
+    channels = (args.channel == -1) and range(9) or [args.channel]
     for channel in channels:
         if args.interrupt == -1:
             v = [.1*interrupt+channel+voltages for interrupt in range(8)]
