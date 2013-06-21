@@ -172,7 +172,7 @@ class DacOut(Module):
         self.aux = Signal(4)
 
         self.data = Signal(16)
-        self.comb += self.data.eq(line.v0[32:])
+        self.sync += self.data.eq(line.v0[32:])
         dt_dec = Signal(16)
         line_dt_dec = Signal(16)
         next_triggers = Signal()
