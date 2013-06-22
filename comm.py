@@ -84,7 +84,7 @@ class Ctrl(Module):
         self.arm = Signal()
  
         for dac in dacs:
-            self.comb += [
+            self.sync += [
                     dac.parser.interrupt.eq(pads.interrupt),
                     dac.out.trigger.eq(pads.trigger | self.trigger),
                     dac.out.arm.eq(self.arm),
