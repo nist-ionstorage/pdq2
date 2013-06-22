@@ -84,11 +84,11 @@ class Ctrl(Module):
         self.arm = Signal()
  
         for dac in dacs:
-            self.sync += [
+            self.comb += [
                     dac.parser.interrupt.eq(pads.interrupt),
                     dac.out.trigger.eq(pads.trigger | self.trigger),
                     dac.out.arm.eq(self.arm),
-                    ] # register these to ease timing
+                    ]
 
         self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)
         #self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
