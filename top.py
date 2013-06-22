@@ -38,6 +38,13 @@ class Soc(Module):
 
         clkin = platform.request("clk50")
         clkin_period = 20
+
+        clkin_sdr = Signal()
+        self.specials += Instance("IBUFG",
+                Instance.Input("I", clkin),
+                Instance.Output("O", clkin_sdr),
+                )
+
         dcm_clk2x = Signal()
         dcm_clk2x180 = Signal()
         dcm_locked = Signal()
@@ -57,7 +64,7 @@ class Soc(Module):
                 Instance.Input("PSEN", 0),
                 Instance.Input("PSINCDEC", 0),
                 Instance.Input("PSCLK", 0),
-                Instance.Input("CLKIN", clkin),
+                Instance.Input("CLKIN", clkin_sdr),
                 Instance.Output("LOCKED", dcm_locked),
                 Instance.Output("CLK2X", dcm_clk2x),
                 Instance.Output("CLK2X180", dcm_clk2x180),
