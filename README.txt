@@ -14,8 +14,8 @@ New dac features
 mode (in line of the higher derivatives modes)
 * supports aux-only mode
 * each line has its own mode
-* complete simulation and testbench support for ft245r, comminucations,
-controller, dac
+* complete simulation and testbench support for ft245r, communications,
+controller, dac, full system
 
 
 Communications
@@ -23,7 +23,7 @@ Communications
 
 * supports "escape" commands. escape char is 0xaa: commands are reset,
 trigger, arm
-* ft245 timings adapted to what the datahsheet allows
+* ft245 timings adapted to what the datasheet allows
 * comm protocol simplified to only support commands interleaved with
 writes to memory (board address, dac address, memory start and data
 length).
@@ -32,16 +32,18 @@ length).
 Memory map
 ----------
 
-* memory format is many "frames", each containing multiple "lines"
+* memory format is frame address, followed by many "frames"
+* each frame is a pointer to the next, a repeat counter, its
+length and finally multiple "lines"
 * frame entry addresses obtained by indirect jumps (frame N jump address is
 stored at mem[N]).
 * each frame has a pointer to another frame that will be executed after it
 * each frame has a repeat counter
-* first 8 frames (interrupts) can be jumped to (interrupting the current frame) by
-hardware
-* each line containes metadata, duration and voltage derivatives
+* first 8 frames (interrupts) can be jumped to (interrupting the current
+frame, after the current line) by hardware
+* each line contains metadata, duration and voltage derivatives
 * metadata is whether to wait for trigger, aux out value, max derivative
-order, wether to override pending trigger, and a time scaling factor
+order, whether to override pending trigger, and a time scaling factor
 * clock is slowed down by 2**shift (to achieve longer line and frame duration,
 up to 2**32 cycles).
 
