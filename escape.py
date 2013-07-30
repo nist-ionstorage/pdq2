@@ -7,11 +7,10 @@ from migen.flow.network import DataFlowGraph, CompositeActor
 
 
 class Unescaper(Module):
-    # something rare, 0xff and 0x00 are too common, 0xaa is 0x10101010
+    # something rare, 0xff and 0x00 are too common, 0xaa is 0b10101010
     def __init__(self, layout, escape=0xaa):
-        i = Sink(layout)
-        oa, ob = Source(layout), Source(layout)
-        self.i, self.oa, self.ob = i, oa, ob
+        self.i = i = Sink(layout)
+        self.oa, self.ob = oa, ob = Source(layout), Source(layout)
         self.comb += oa.payload.eq(i.payload), ob.payload.eq(i.payload)
 
         self.busy = Signal()

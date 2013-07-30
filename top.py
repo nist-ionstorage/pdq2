@@ -16,6 +16,7 @@ class Soc(Module):
             dac = Dac(mem_depth=mem)
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)
+
             pads = platform.request("dac", i)
             # FIXME: do we really need the inversion
             # would registering the output not be enough?
@@ -39,6 +40,12 @@ class Soc(Module):
         clkin = platform.request("clk50")
         clkin_period = 20
 
+        platform.add_platform_command("""
+NET "{clk50}" TNM_NET = "grp_clk50";
+TIMESPEC "ts_grp_clk50" = PERIOD "grp_clk50" 20 ns HIGH 50%;
+""", clk50=clkin)
+        #TIMEGRP "dac_Out" OFFSET = OUT 10 ns AFTER "clk_dac";
+ 
         clkin_sdr = Signal()
         self.specials += Instance("IBUFG",
                 Instance.Input("I", clkin),
@@ -109,15 +116,15 @@ class TB(Module):
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)
             dac.parser.mem.init = [0] * dac.parser.mem.depth
-        self.comm_pads = Record(self.comm_pads)
-        self.submodules.comm = Comm(self.comm_pads, dacs, mem)
+        self.pads = Record(self.comm_pads)
+        self.submodules.comm = Comm(self.pads, dacs, mem)
         self.outputs = []
 
     def do_simulation(self, s):
         if s.cycle_counter == 0:
-            s.wr(self.comm_pads.interrupt, 7) # pullup
-            s.wr(self.comm_pads.adr, 15) # active low, pullup
-            s.wr(self.comm_pads.trigger, 1) # pullup
+            s.wr(self.pads.interrupt, 7) # pullup
+            s.wr(self.pads.adr, 15) # active low, pullup
+            s.wr(self.pads.trigger, 1) # pullup
         self.outputs.append(s.rd(self.dac1.out.data))
 
 

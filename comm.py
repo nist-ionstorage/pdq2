@@ -32,14 +32,14 @@ class MemWriter(Module):
 
         dev_adr = Signal(16)
         board_adr = Signal(flen(pads.adr))
-        self.comb += board_adr.eq(dev_adr[:flen(board_adr)])
+        self.comb += board_adr.eq(dev_adr)
         dac_adr = Signal(max=len(dacs))
-        self.comb += dac_adr.eq(dev_adr[8:8+flen(dac_adr)])
+        self.comb += dac_adr.eq(dev_adr[8:])
         listen = Signal()
         self.comb += listen.eq(board_adr == ~pads.adr)
         data_len = Signal(16)
         mem_adr = Signal(16)
-        self.comb += [mem.adr.eq(mem_adr[:flen(mem.adr)]) for mem in mems]
+        self.comb += [mem.adr.eq(mem_adr) for mem in mems]
         mem_dat = Signal(16)
         self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
         we = Array(mem.we for mem in mems)[dac_adr]
@@ -73,7 +73,6 @@ class MemWriter(Module):
 class Ctrl(Module):
     def __init__(self, pads, dacs):
         self.command_in = Sink(data_layout)
-        cmd = self.command_in.payload.data
         self.comb += self.command_in.ack.eq(1) # can alway accept
         self.busy = Signal()
         self.comb += self.busy.eq(~self.command_in.ack | self.command_in.stb)
@@ -103,7 +102,7 @@ class Ctrl(Module):
                 "ARM_EN":      (0x04, [self.arm.eq(1)]),
                 "ARM_DIS":     (0x05, [self.arm.eq(0)]),
                 }
-        self.sync += If(self.command_in.stb, Case(cmd,
+        self.sync += If(self.command_in.stb, Case(self.command_in.payload.data,
             dict((code, act) for name, (code, act) in commands.items())))
 
 

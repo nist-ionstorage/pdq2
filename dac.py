@@ -65,7 +65,7 @@ class Parser(Module):
         def read_next(reg, next_state, inc):
             ret = []
             if inc: ret.append(read.adr.eq(read.adr + inc))
-            if reg: ret.append(reg.eq(read.dat_r[:flen(reg)]))
+            if reg: ret.append(reg.eq(read.dat_r))
             if next_state: ret.append(state.eq(states[next_state]))
             return ret
 
