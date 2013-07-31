@@ -10,7 +10,7 @@ class SimFt245r_rx(Module):
     def __init__(self, pads, data):
         self.pads = pads
         self.data = data
-        self.sync += pads.rd_in.eq(pads.rd_out)
+        self.comb += pads.rd_in.eq(pads.rd_out)
         pads.rxfl.reset = 1
         self.state = "init"
         self.wait = 0
@@ -66,19 +66,19 @@ class Ft245r_rx(Module):
                 rxf.eq(~pads.rxfl),
                 ]
 
-        # t_RDl_Dv <= 50 ns (setup)
-        # t_RDh_Di >= 0ns (hold)
-        # t_RDl_RDh >= 50 ns (redundant, <= r_RDl_Dv)
-        # t_RDh_RXh <= 25ns (from FT245R)
-        # t_RXh_RXl >= 80ns (from FT245R)
-        # t_RDh_RDk >= 50ns + t_RXh_RXl (we understand this as a
+        # t_RDl_Dv = 50 ns (setup)
+        # t_RDh_Di = 0ns (hold)
+        # t_RDl_RDh = 50 ns (redundant, <= r_RDl_Dv)
+        # t_RDh_RXh = 25ns (from FT245R)
+        # t_RXh_RXl = 80ns (from FT245R)
+        # t_RDh_RDk = 50ns + t_RXh_RXl (we understand this as a
         #    conditional addition)
         
-        # we read every t_fill + t_read + t_slave = 100ns
+        # we read every t_fill + t_read + t_slave
         # can only sustain 1MByte/s anyway, full speed USB
-        t_fill = int(ceil(25/clk)) - 1 # t_RDl_RXh - state
-        t_read = int(ceil(50/clk)) - 3 # t_RDl_Dv - state, stb, latch
-        t_slave = int(ceil(10/clk)+1) + 1 # slave skew - t_RDh_Di + latch
+        t_fill = int(ceil(25/clk)) # t_RDl_RXh
+        t_read = int(ceil(50/clk)) - 2 # t_RDl_Dv - state, stb
+        t_slave = int(ceil(10/clk) + 1) # slave skew - t_RDh_Di
         # stb implicitly needs to be acked within
         # t_slave + t_fill + t_read cycles
         max_wait = max(t_fill, t_read, t_slave)

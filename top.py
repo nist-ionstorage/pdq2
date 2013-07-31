@@ -19,8 +19,7 @@ class Soc(Module):
             dacs.append(dac)
 
             pads = platform.request("dac", i)
-            # FIXME: do we really need the inversion
-            # would registering the output not be enough?
+            # inverted clocks ensure setup and hold times of data
             self.comb += pads.clk_p.eq(clk_n), pads.clk_n.eq(clk_p)
             self.specials += Instance("OBUFDS",
                     i_I=clk_n,
@@ -98,7 +97,9 @@ class TB(Module):
             ("go2_out", 1),
             ]
 
-    def __init__(self, mem=None):
+    def __init__(self, mem=None, top=None):
+        self.comb += ClockSignal().eq(top.clock_domains[0].clk)
+
         dacs = []
         for i in range(3):
             dac = Dac()
@@ -107,6 +108,7 @@ class TB(Module):
             dac.parser.mem.init = [0] * dac.parser.mem.depth
         self.pads = Record(self.comm_pads)
         self.submodules.comm = Comm(self.pads, dacs, mem)
+        self.comb += ResetSignal().eq(top.clock_domains[0].rst | self.comm.ctrl.reset)
         self.outputs = []
 
     def do_simulation(self, s):
@@ -132,8 +134,9 @@ def main():
     mem = p.single_frame(t, v, channel=1, derivatives=4,
             aux=t<.5e-6, repeat=2, wait_last=True, time_shift=0)
     mem = p.cmd("RESET_EN") + mem + p.cmd("ARM_EN")
-    tb = TB(list(mem))
-    sim = Simulator(tb, TopLevel("top.vcd", clk_period=10)) #, Runner(keep_files=True))
+    top = TopLevel("top.vcd", clk_period=10, cd_name="sim")
+    tb = TB(list(mem), top)
+    sim = Simulator(tb, top) #, Runner(keep_files=True))
     n = 6000
     sim.run(n)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
