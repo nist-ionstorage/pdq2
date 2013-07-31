@@ -1,3 +1,4 @@
+from math import ceil
 import random
 
 from migen.fhdl.std import *
@@ -17,7 +18,7 @@ class SimFt245r_rx(Module):
     def do_simulation(self, s):
         self.wait = max(0, self.wait - 1)
         if self.state == "init":
-            if self.data and self.wait < 2:
+            if self.data and self.wait == 0:
                 s.wr(self.pads.rxfl, 0)
                 self.state = "fill"
             else:
@@ -25,7 +26,7 @@ class SimFt245r_rx(Module):
         elif self.state == "fill":
             if s.rd(self.pads.rdl) == 0:
                 self.state = "setup"
-                self.wait = 4
+                self.wait = 3 # rdl, data
         elif self.state == "setup":
             if self.wait == 0:
                 s.wr(self.pads.data, self.data.pop(0))
@@ -33,7 +34,7 @@ class SimFt245r_rx(Module):
                 self.state = "hold"
         elif self.state == "hold":
             if s.rd(self.pads.rdl) == 1:
-                self.wait = random.choice([0, 3, 20])
+                self.wait = random.choice([0, 1, 2, 5])
                 self.state = "init"
 
 
@@ -41,14 +42,29 @@ data_layout = [("data", 8)]
 
 
 class Ft245r_rx(Module):
-    def __init__(self, pads):
+    def __init__(self, pads, clk=10.):
         self.data_out = Source(data_layout)
         do = self.data_out
 
         self.busy = Signal()
         self.comb += self.busy.eq(~do.stb | do.ack)
-        
+
+        stb_set = Signal()
+        self.sync += [
+                do.stb.eq(do.stb & ~do.ack),
+                If(stb_set,
+                    do.stb.eq(1),
+                    do.payload.raw_bits().eq(pads.data),
+                )]
+       
         self.comb += pads.rdl.eq(~pads.rd_out) # master, enslave this
+
+        rd_in = Signal()
+        rxf = Signal()
+        self.sync += [
+                rd_in.eq(pads.rd_in),
+                rxf.eq(~pads.rxfl),
+                ]
 
         # t_RDl_Dv <= 50 ns (setup)
         # t_RDh_Di >= 0ns (hold)
@@ -60,33 +76,25 @@ class Ft245r_rx(Module):
         
         # we read every t_fill + t_read + t_slave = 100ns
         # can only sustain 1MByte/s anyway, full speed USB
-        t_fill = 3 # t_RDl_RXh
-        t_read = 5 # t_RDl_Dv
-        t_slave = 2 # slave skew - t_RDh_Di
+        t_fill = int(ceil(25/clk)) - 1 # t_RDl_RXh - state
+        t_read = int(ceil(50/clk)) - 3 # t_RDl_Dv - state, stb, latch
+        t_slave = int(ceil(10/clk)+1) + 1 # slave skew - t_RDh_Di + latch
         # stb implicitly needs to be acked within
         # t_slave + t_fill + t_read cycles
         max_wait = max(t_fill, t_read, t_slave)
-        t = Signal(min=1, max=max_wait + 1)
+        t = Signal(max=max_wait + 1)
         t_reset = Signal()
         self.sync += [
                 If(t_reset,
-                    t.eq(1),
+                    t.eq(0),
                 ).Elif(t != max_wait,
                     t.eq(t + 1),
                 )]
 
-        stb_set = Signal()
-        self.sync += [
-                do.stb.eq(do.stb & ~do.ack),
-                If(stb_set,
-                    do.stb.eq(1),
-                    do.payload.raw_bits().eq(pads.data),
-                )]
-
         self.submodules.fsm = fsm = FSM()
         fsm.act("READ",
-                pads.rd_out.eq((t >= t_fill) & ~pads.rxfl),
-                If(pads.rd_in,
+                pads.rd_out.eq((t >= t_fill) & rxf),
+                If(rd_in,
                     t_reset.eq(1),
                     NextState("SETUP"),
                 ))
@@ -97,13 +105,13 @@ class Ft245r_rx(Module):
                     t_reset.eq(1),
                     NextState("HOLD"),
                 ),
-                If(~pads.rd_in,
+                If(~rd_in,
                     t_reset.eq(1),
                     NextState("READ"),
                 ))
         fsm.act("HOLD",
                 pads.rd_out.eq(t < t_slave),
-                If(~pads.rd_in,
+                If(~rd_in,
                     t_reset.eq(1),
                     NextState("READ"),
                 ))

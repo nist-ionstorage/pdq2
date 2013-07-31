@@ -7,10 +7,11 @@ from comm import Comm
 
 
 class Soc(Module):
-    def __init__(self, platform):
+    def __init__(self, platform, fast=True):
         self.clock_domains.cd_sys = ClockDomain()
         clk_p = self.cd_sys.clk
         clk_n = Signal()
+
         dacs = []
         for i, mem in enumerate((1<<13, 1<<13, 1<<12)):
             dac = Dac(mem_depth=mem)
@@ -22,20 +23,21 @@ class Soc(Module):
             # would registering the output not be enough?
             self.comb += pads.clk_p.eq(clk_n), pads.clk_n.eq(clk_p)
             self.specials += Instance("OBUFDS",
-                    Instance.Parameter("IOSTANDARD", "LVDS_25"),
-                    Instance.Input("I", clk_n),
-                    Instance.Output("O", pads.data_clk_p),
-                    Instance.Output("OB", pads.data_clk_n),
+                    i_I=clk_n,
+                    o_O=pads.data_clk_p,
+                    o_OB=pads.data_clk_n,
                     )
             for i in range(16):
                 self.specials += Instance("OBUFDS",
-                        Instance.Parameter("IOSTANDARD", "LVDS_25"),
-                        Instance.Input("I", ~dac.out.data[i]),
-                        Instance.Output("O", pads.data_p[i]),
-                        Instance.Output("OB", pads.data_n[i]),
+                        i_I=~dac.out.data[i],
+                        o_O=pads.data_p[i],
+                        o_OB=pads.data_n[i],
                         )
+        #TIMEGRP "dac_Out" OFFSET = OUT 10 ns AFTER "clk_dac";
 
         self.submodules.comm = Comm(platform.request("comm"), dacs)
+        
+        self.comb += self.cd_sys.rst.eq(self.comm.ctrl.reset)
 
         clkin = platform.request("clk50")
         clkin_period = 20
@@ -44,54 +46,41 @@ class Soc(Module):
 NET "{clk50}" TNM_NET = "grp_clk50";
 TIMESPEC "ts_grp_clk50" = PERIOD "grp_clk50" 20 ns HIGH 50%;
 """, clk50=clkin)
-        #TIMEGRP "dac_Out" OFFSET = OUT 10 ns AFTER "clk_dac";
- 
-        clkin_sdr = Signal()
-        self.specials += Instance("IBUFG",
-                Instance.Input("I", clkin),
-                Instance.Output("O", clkin_sdr),
-                )
 
-        dcm_clk2x = Signal()
-        dcm_clk2x180 = Signal()
-        dcm_locked = Signal()
-        self.specials += Instance("DCM_SP",
-                Instance.Parameter("CLKDV_DIVIDE", 2),
-                Instance.Parameter("CLKFX_DIVIDE", 1),
-                Instance.Parameter("CLKFX_MULTIPLY", 4),
-                Instance.Parameter("CLKIN_DIVIDE_BY_2", "FALSE"),
-                Instance.Parameter("CLKIN_PERIOD", clkin_period),
-                Instance.Parameter("CLK_FEEDBACK", "2X"),
-                Instance.Parameter("DLL_FREQUENCY_MODE", "LOW"),
-                Instance.Parameter("DFS_FREQUENCY_MODE", "LOW"),
-                Instance.Parameter("STARTUP_WAIT", "FALSE"),
-                Instance.Parameter("PHASE_SHIFT", 0),
-                Instance.Parameter("DUTY_CYCLE_CORRECTION", "TRUE"),
-                Instance.Input("RST", 0),
-                Instance.Input("PSEN", 0),
-                Instance.Input("PSINCDEC", 0),
-                Instance.Input("PSCLK", 0),
-                Instance.Input("CLKIN", clkin_sdr),
-                Instance.Output("LOCKED", dcm_locked),
-                Instance.Output("CLK2X", dcm_clk2x),
-                Instance.Output("CLK2X180", dcm_clk2x180),
-                Instance.Input("CLKFB", clk_p),
-                )
-        self.specials += Instance("BUFG",
-                Instance.Input("I", dcm_clk2x),
-                Instance.Output("O", clk_p),
-                )
-        self.specials += Instance("BUFG",
-                Instance.Input("I", dcm_clk2x180),
-                Instance.Output("O", clk_n),
-                )
-        #clk50 = platform.request("clk50")
-        #self.comb += clk_p.eq(clk50), clk_n.eq(~clk50)
+        if not fast:
+            self.comb += clk_p.eq(clkin), clk_n.eq(~clkin)
+        else:
+            clkin_sdr = Signal()
+            self.specials += Instance("IBUFG", i_I=clkin, o_O=clkin_sdr)
+
+            dcm_clk2x = Signal()
+            dcm_clk2x180 = Signal()
+            dcm_locked = Signal()
+            self.specials += Instance("DCM_SP",
+                    p_CLKDV_DIVIDE=2,
+                    p_CLKFX_DIVIDE=1,
+                    p_CLKFX_MULTIPLY=4,
+                    p_CLKIN_DIVIDE_BY_2="FALSE",
+                    p_CLKIN_PERIOD=clkin_period,
+                    p_CLK_FEEDBACK="2X",
+                    p_DLL_FREQUENCY_MODE="LOW",
+                    p_DFS_FREQUENCY_MODE="LOW",
+                    p_STARTUP_WAIT="FALSE",
+                    p_PHASE_SHIFT=0,
+                    p_DUTY_CYCLE_CORRECTION="TRUE",
+                    i_RST=0,
+                    i_PSEN=0,
+                    i_PSINCDEC=0,
+                    i_PSCLK=0,
+                    i_CLKIN=clkin_sdr,
+                    o_LOCKED=dcm_locked,
+                    o_CLK2X=dcm_clk2x,
+                    o_CLK2X180=dcm_clk2x180,
+                    i_CLKFB=clk_p,
+                    )
+            self.specials += Instance("BUFG", i_I=dcm_clk2x, o_O=clk_p)
+            self.specials += Instance("BUFG", i_I=dcm_clk2x180, o_O=clk_n)
         
-        sys_rst = ResetSignal()
-        self.comb += sys_rst.eq(self.comm.ctrl.reset)
-
-
 
 class TB(Module):
     comm_pads = [
@@ -141,13 +130,11 @@ def main():
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
     mem = p.single_frame(t, v, channel=1, derivatives=4,
-            aux=t>.5e-6, repeat=2, wait_last=True, time_shift=0)
-    mem = (p.cmd("RESET_EN") + p.cmd("RESET_DIS") + mem
-            + p.cmd("ARM_EN"))
-    print(repr(mem))
-    n = 10000
+            aux=t<.5e-6, repeat=2, wait_last=True, time_shift=0)
+    mem = p.cmd("RESET_EN") + mem + p.cmd("ARM_EN")
     tb = TB(list(mem))
     sim = Simulator(tb, TopLevel("top.vcd", clk_period=10)) #, Runner(keep_files=True))
+    n = 6000
     sim.run(n)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq

@@ -133,7 +133,7 @@ class Pdq(object):
         derivatives = []
         if mode > 1:
             spline = interpolate.splrep(times, voltages, s=0, k=mode-1)
-            derivatives += [interpolate.splev(times[:-1], spline, der=i)
+            derivatives += [interpolate.splev(times, spline, der=i)[:-1]
                     for i in range(1, mode)]
         voltages = voltages[:-1]
         times = times[1:]
@@ -249,9 +249,9 @@ class Pdq(object):
             if written < len(segment):
                 logging.error("wrote only %i of %i", written, len(segment))
 
-    def set_interrupt(self, board, channel, interrupt, addr):
+    def set_frame_addr(self, board, channel, frame, addr):
         data = struct.pack("<H", addr)
-        data = self.add_mem_header(board, channel, interrupt, data)
+        data = self.add_mem_header(board, channel, frame, data)
         return self.write(data)
 
     def write_cmd(self, cmd):
@@ -265,10 +265,10 @@ def main():
             them.""")
     parser.add_argument("-s", "--serial", default=None,
             help="device (FT245R) serial string [first]")
-    parser.add_argument("-c", "--channel", default=0, type=int,
+    parser.add_argument("-c", "--channel", default=None, type=int,
             help="channel: 3*board_num+dac_num [%(default)s]")
-    parser.add_argument("-i", "--interrupt", default=0, type=int,
-            help="interrupt number [%(default)s]")
+    parser.add_argument("-i", "--frame", default=None, type=int,
+            help="frame number [%(default)s]")
     parser.add_argument("-f", "--free", default=False,
             action="store_true",
             help="software trigger group, free running [%(default)s]")
@@ -281,12 +281,9 @@ def main():
     parser.add_argument("-v", "--voltages",
             default="(1-np.cos(t/t[-1]*np.pi))/2",
             help="sample voltages (V) [%(default)s]")
-    parser.add_argument("-m", "--mode", default=3, type=int,
-            help="interpolation (1: only aux, 1: const, 2: lin, 2: quad, 3: cubic)"
+    parser.add_argument("-m", "--mode", default=4, type=int,
+            help="interpolation (0: only aux, 1: const, 2: lin, 3: quad, 4: cubic)"
                  " [%(default)s]")
-    parser.add_argument("-x", "--test", default=False, action="store_true",
-            help="test mode, assign all channels and all interrupts the"
-                 "same waveform shifted by channel+.1*interrupt [%(default)s]")
     parser.add_argument("-p", "--plot",
             help="plot to file [%(default)s]")
     parser.add_argument("-d", "--debug", default=False,
@@ -318,22 +315,21 @@ def main():
 
     dev = Pdq(serial=args.serial)
     dev.write_cmd("RESET_EN")
-    data = b""
-    #data += dev.cmd("RESET_DIS")
-    channels = (args.channel == -1) and range(9) or [args.channel]
+    data = []
+    channels = (args.channel is None) and range(9) or [args.channel]
     for channel in channels:
-        if args.interrupt == -1:
-            v = [.1*interrupt+channel+voltages for interrupt in range(8)]
-            t = [times] * 8
-            data += dev.multi_frame(zip(t, v), channel, args.mode,
-                    derivatives=args.mode)
+        if args.frame is None:
+            v = [.1*frame + channel + voltages for frame in range(8)]
+            t = [times] * len(v)
+            data.append(dev.multi_frame(zip(t, v), channel=channel,
+                    derivatives=args.mode))
         else:
-            data += dev.single_frame(times, voltages, channel=channel,
-                    derivatives=args.mode)
-    data += dev.cmd("ARM_DIS" if args.disarm else "ARM_EN")
-    data += dev.cmd("TRIGGER_EN" if args.free else "TRIGGER_DIS")
-    dev.write(data)
-    
+            data.append(dev.single_frame(times, voltages, channel=channel,
+                    derivatives=args.mode))
+    dev.write(*data)
+    dev.write_cmd("ARM_DIS" if args.disarm else "ARM_EN")
+    dev.write_cmd("TRIGGER_EN" if args.free else "TRIGGER_DIS")
+
 
 if __name__ == "__main__":
     main()
