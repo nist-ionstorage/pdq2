@@ -100,7 +100,7 @@ class Ctrl(Module):
             self.comb += [
                     dac.parser.interrupt.eq(pads.interrupt),
                     dac.out.trigger.eq(pads.trigger | self.trigger),
-                    dac.out.arm.eq(self.arm),
+                    dac.parser.arm.eq(self.arm),
                     ]
 
         self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)

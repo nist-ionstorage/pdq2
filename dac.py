@@ -3,22 +3,22 @@ from migen.genlib.record import Record
 from migen.genlib.misc import optree
 from migen.flow.actor import Source, Sink
 from migen.flow.network import CompositeActor, DataFlowGraph
+from migen.genlib.cordic import Cordic
 
 
 line_layout = [
-        ("typ", 4),
-        ("wait", 1),
-        ("trigger", 1),
-        ("shift", 4),
-        ("aux", 4),
-        ("reserved", 2),
+        ("header", [
+            ("length", 4),
+            ("typ", 2),
+            ("wait", 1),
+            ("trigger", 1),
+            ("shift", 4),
+            ("aux", 1),
+            ("reserved", 3),
+        ]),
         ("dt", 16),
-        ("v0", 48),
-        ("v1", 48),
-        ("v2", 48),
-        ("v3", 48),
+        ("data", 15*16),
         ]
-
 
 class Parser(Module):
     def __init__(self, mem_data_width=16, mem_adr_width=16,
@@ -27,6 +27,8 @@ class Parser(Module):
         read = self.mem.get_port()
         self.specials.read = read
 
+        self.arm = Signal()
+
         self.line_out = Source(line_layout)
         fp = self.line_out.payload
         self.busy = Signal()
@@ -34,27 +36,20 @@ class Parser(Module):
         complete = Signal()
         self.comb += complete.eq(self.line_out.stb & self.line_out.ack)
         self.sync += If(complete, self.line_out.stb.eq(0))
-                # fp.raw_bits().eq(0), # no, we ignore non-typ bits
 
         repeat = Signal(8)
         next_frame = Signal(8)
         mode = Cat(next_frame, repeat)
         length = Signal(16)
 
-        header = Cat(fp.typ, fp.wait, fp.trigger, fp.shift, fp.aux,
-                fp.reserved)
-
         read_seq = [ # WAIT0/1 are wait states for data->read.adr->read.dat_r
                 ("WAIT0", None, 0), ("IRQ", read.adr, 0), ("WAIT1", None, 1),
                 ("MODE", mode, 1), ("LENGTH", length, 1),
-                ("HEADER", header, 1), # will be overridden
+                ("HEADER", fp.header.raw_bits(), 1), # will be overridden
                 ("DT", fp.dt, 1),
-                ("V0", fp.v0[32:], 1),
-                ("V1", fp.v1[16:32], 1), ("V1A", fp.v1[32:], 1),
-                ("V2", fp.v2[:16], 1), ("V2A", fp.v2[16:32], 1),
-                    ("V2B", fp.v2[32:], 1),
-                ("V3", fp.v3[:16], 1), ("V3A", fp.v3[16:32], 1),
-                    ("V3B", fp.v3[32:], 1),
+                ] + [
+                ("DATA%i" % i, fp.data[i*16:(i+1)*16], 1) for i in range(15)
+                ] + [
                 (None,),
                 ]
 
@@ -81,16 +76,17 @@ class Parser(Module):
                     delayed.eq(1),
                 ),
                 If(complete | ~self.line_out.stb, # sent
+                    fp.raw_bits().eq(0),
                     If(delayed,
-                        header.eq(save_data), # use kept
+                        fp.header.raw_bits().eq(save_data), # use kept
                     ).Else(
-                        header.eq(read.dat_r), # use current
+                        fp.header.raw_bits().eq(read.dat_r), # use current
                     ),
                     delayed.eq(0),
                     read.adr.eq(read.adr + 1),
                     state.eq(states["DT"]),
                 )]
-        self.sync += Case(state, seq_actions)
+        self.sync += If(self.arm, Case(state, seq_actions))
         
         cur_frame = Signal(4)
         repetitions = Signal(8)
@@ -98,11 +94,9 @@ class Parser(Module):
         self.interrupt = interrupt
         save_interrupt = Signal(4)
 
-        short_send = "DT V0 V1A V2B V3B".split()
         line_ready = Signal() # all fields read
-        self.comb += line_ready.eq(optree("|", [
-                    (state == states[st]) & (fp.typ == j)
-                    for j, st in enumerate(short_send)]))
+        self.comb += line_ready.eq((state >= states["DT"]) & 
+                (state - states["DT"] == fp.header.length))
         self.sync += [
             If(line_ready,
                 self.line_out.stb.eq(1),
@@ -132,52 +126,110 @@ class Parser(Module):
 class DacOut(Module):
     def __init__(self):
         self.line_in = Sink(line_layout)
-        line = Record(line_layout)
-        self.line = line
         self.busy = Signal()
         self.comb += self.busy.eq(~self.line_in.ack | self.line_in.stb)
 
         self.trigger = Signal()
-        self.arm = Signal()
-        self.aux = Signal(4)
+        self.aux = Signal()
+
+        line = Record(line_layout)
 
         self.data = Signal(16)
-        self.sync += self.data.eq(line.v0[32:])
         dt_dec = Signal(16)
-        line_dt_dec = Signal(16)
         next_triggers = Signal()
         self.comb += next_triggers.eq(self.line_in.stb &
-                self.line_in.payload.trigger)
+                self.line_in.payload.header.trigger)
         hold = Signal()
-        self.comb += hold.eq(~self.arm | (line.wait &
-            ~(self.trigger | next_triggers)))
-        self.comb += self.line_in.ack.eq((line.dt <= 1) & (dt_dec <= 1)
-                & ~hold)
+        self.comb += hold.eq(line.header.wait &
+            ~(self.trigger | next_triggers))
+        delay = Signal()
+        self.comb += delay.eq(dt_dec > 1)
+        tic = Signal()
+        self.comb += tic.eq(~delay & (line.dt > 1))
+        self.comb += self.line_in.ack.eq(~delay & ~tic & ~hold)
         complete = Signal()
         self.comb += complete.eq(self.line_in.stb & self.line_in.ack)
-
+    
         lp = self.line_in.payload
+
+        self.sync += self.data.eq(0)
+        for Sub in Dds, Volt:
+            sub = Sub(lp, line, complete, tic)
+            self.submodules += sub
+            self.sync += If(sub.valid, self.data.eq(sub.data))
+
         self.sync += [
-                If(dt_dec > 1,
+                If(delay,
                     dt_dec.eq(dt_dec - 1),
-                ).Else(
-                    If(line.dt > 1,
-                        If(line.typ >= 2, line.v0.eq(line.v0 + line.v1)),
-                        If(line.typ >= 3, line.v1.eq(line.v1 + line.v2)),
-                        If(line.typ >= 4, line.v2.eq(line.v2 + line.v3)),
-                        line.dt.eq(line.dt - 1),
-                        dt_dec.eq(line_dt_dec),
-                    ).Elif(complete,
-                        Cat(line.typ, line.wait, line.trigger, line.dt).eq(
-                            Cat(lp.typ, lp.wait, lp.trigger, lp.dt)),
-                        self.aux.eq(lp.aux),
-                        dt_dec.eq(1<<lp.shift),
-                        line_dt_dec.eq(1<<lp.shift),
-                        If(lp.typ >= 1, line.v0.eq(lp.v0)),
-                        If(lp.typ >= 2, line.v1.eq(lp.v1)),
-                        If(lp.typ >= 3, line.v2.eq(lp.v2)),
-                        If(lp.typ >= 4, line.v3.eq(lp.v3)),
-                    ),
+                ),
+                If(tic,
+                    line.dt.eq(line.dt - 1),
+                    dt_dec.eq(1<<line.header.shift),
+                ),
+                If(complete,
+                    line.header.eq(lp.header),
+                    line.dt.eq(lp.dt),
+                    self.aux.eq(lp.header.aux),
+                    dt_dec.eq(1<<lp.header.shift),
+                )]
+
+
+class Volt(Module):
+    def __init__(self, lp, line, complete, tic):
+        self.valid = Signal()
+        self.data = Signal(16)
+
+        v = [Signal(48) for i in range(4)]
+        self.comb += [
+                self.data.eq(v[0][32:]),
+                self.valid.eq(line.header.typ == 0),
+                ]
+
+        self.sync += [
+                If(tic,
+                    v[0].eq(v[0] + v[1]),
+                    v[1].eq(v[1] + v[2]),
+                    v[2].eq(v[2] + v[3]),
+                ),
+                If(complete,
+                    v[0].eq(0),
+                    v[1].eq(0),
+                    Cat(v[0][32:], v[1][16:], v[2], v[3]).eq(lp.data),
+                )]
+
+
+class Dds(Module):
+    def __init__(self, lp, line, complete, tic):
+        self.submodules.cordic = Cordic(width=16, guard=None,
+                eval_mode="pipelined", cordic_mode="rotate",
+                func_mode="circular")
+        self.valid = Signal()
+        self.data = Signal(16)
+
+        valid_sr = Signal(self.cordic.latency)
+        self.sync += valid_sr.eq(Cat(line.header.typ == 1, valid_sr))
+
+        z = [Signal(48) for i in range(3)]
+        x = [Signal(32) for i in range(2)]
+        self.comb += [
+                self.cordic.xi.eq(x[0][16:]),
+                self.cordic.yi.eq(0),
+                self.cordic.zi.eq(z[0][32:]),
+                self.data.eq(self.cordic.xo),
+                self.valid.eq(valid_sr[-1]),
+                ]
+        self.sync += [
+                If(tic,
+                    z[0].eq(z[0] + z[1]),
+                    z[1].eq(z[1] + z[2]),
+                    x[0].eq(x[0] + x[1]),
+                ),
+                If(complete,
+                    z[0].eq(0),
+                    z[1].eq(0),
+                    x[0].eq(0),
+                    Cat(z[0][32:], x[0][16:], z[1][16:], x[1], z[2]
+                        ).eq(lp.data),
                 )]
 
 
@@ -200,7 +252,7 @@ class TB(Module):
     def do_simulation(self, s):
         self.outputs.append(s.rd(self.dac.out.data))
         if s.cycle_counter == 30:
-            s.wr(self.dac.out.arm, 1)
+            s.wr(self.dac.parser.arm, 1)
         #    s.wr(self.dac.parser.interrupt, 2)
         #if s.cycle_counter == 100:
         #    s.wr(self.dac.out.trigger, 1)

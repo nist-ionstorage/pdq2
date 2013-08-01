@@ -76,43 +76,6 @@ class Pdq(object):
             "ARM_DIS":     b"\x05",
             }
         
-    # DEV_ADR:
-    #   BOARD 8
-    #   DAC 8
-    # MEM_ADR 16
-    # DATA_LEN 16
-    # MEM_DATA
-    #   
-    # MEM:
-    #   IRQ0_ADR 16
-    #   ...
-    #   IRQ7_ADR 16
-    #   JUMP_ADR 16
-    #   ...
-    #   FRAME
-    #   ...
-    # FRAME:
-    #   MODE 16:
-    #       NEXT_FRAME 8
-    #       REPEAT 8
-    #   LENGTH 16
-    #   LINE
-    #   ...
-    # LINE:
-    #   HEADER 16:
-    #     TYP 4
-    #     WAIT 1
-    #     TRIGGER 1
-    #     SHIFT 4
-    #     AUX 4
-    #     RESERVED 2
-    #   DT 16
-    #   (V0 16)
-    #   (V1 32)
-    #   (V2 48)
-    #   (V3 48)
-
-
     def __init__(self, serial=None):
         self.dev = Ftdi(serial)
 
@@ -147,23 +110,25 @@ class Pdq(object):
         derivatives can be a number in which case the derivatives will
         be the interpolation, else it should be a list of derivatives
         """
+        # FIXME implement DDS mode
         if type(derivatives) is type(1):
             times, voltages, derivatives = self.interpolate(times,
                     voltages, derivatives)
-        order = len(derivatives)
+        line_len = {0: 0, 1: 1, 2: 3, 3: 6, 4: 9}[len(derivatives) + 1]
         length = len(times)
         voltages = [voltages] + list(derivatives)
 
         frame = []
 
         head = np.zeros((length,), "u2")
-        head[:] |= (order+1)<<0
-        head[-1] |= wait_last<<4
-        head[0] |= trigger_first<<5
-        head[:] |= time_shift<<6
+        head[:] |= line_len<<0 # 4
+        #head[:] |= 0<<4 # typ # 2
+        head[-1] |= wait_last<<6 # 1
+        head[0] |= trigger_first<<7 # 1
+        head[:] |= time_shift<<8 # 4
         if aux is not None:
-            head[:] |= aux[:length]<<10
-        #head[:] |= reserved<<14
+            head[:] |= aux[:length]<<12 # 1
+        #head[:] |= reserved<<13 # 3
         frame.append(head)
 
         dt = np.diff(np.r_[0, times])*(self.freq/(1<<time_shift))
@@ -187,8 +152,7 @@ class Pdq(object):
         data_length = len(bytes(frame.data))
         logging.debug("frame %s dtype %s shape %s length %s",
                 frame, frame.dtype, frame.shape, data_length)
-        bytes_per_line = {0: 2+2+2, 1: 2+2+2+4, 2: 2+2+2+4+6, 3: 2+2+2+4+6+6}
-        bpl = bytes_per_line[order]
+        bpl = 2*(2 + line_len)
         assert data_length == bpl*length, (data_length, bpl, length,
                 frame.shape)
         return frame

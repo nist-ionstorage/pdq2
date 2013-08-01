@@ -7,6 +7,7 @@ New dac features
 
 * 100 MHz operation by doubling the clock
 * supports digital aux out channel
+* dds mode with phase, frequency, amplitude and their sweeps
 * supports frame repetition and frame chaining
 * supports more (256) frames
 * supports longer wait times up to 2**32 (43 seconds)
@@ -65,14 +66,23 @@ up to 2**32 cycles).
 #   ...
 # LINE:
 #   HEADER 16:
-#     TYP 4
+#     LENGTH 4
+#     TYP 2
 #     WAIT 1
 #     TRIGGER 1
 #     SHIFT 4
-#     AUX 4
-#     RESERVED 2
+#     AUX 1
+#     RESERVED 3
 #   DT 16
-#   (V0 16)
-#   (V1 32)
-#   (V2 48)
-#   (V3 48)
+#   UNION DATA 0-15*16
+#     VOLT-TYP:
+#       V0 16
+#       V1 32
+#       V2 48
+#       V3 48
+#     DDS-TYP:
+#       Z0 16
+#       X0 16
+#       Z1 32
+#       X1 32
+#       Z2 48
