@@ -75,14 +75,14 @@ up to 2**32 cycles).
 #     RESERVED 3
 #   DT 16
 #   UNION DATA 0-15*16
-#     VOLT-TYP:
+#     TYP VOLT:
 #       V0 16
 #       V1 32
 #       V2 48
 #       V3 48
-#     DDS-TYP:
-#       Z0 16
-#       X0 16
-#       Z1 32
-#       X1 32
-#       Z2 48
+#     TYP DDS:
+#       Z0 16 (phase)
+#       X0 16 (amplitude)
+#       Z1 32 (freq)
+#       X1 32 (d amplitude)
+#       Z2 48 (d freq)

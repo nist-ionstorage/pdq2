@@ -131,7 +131,7 @@ class Pdq(object):
         #head[:] |= reserved<<13 # 3
         frame.append(head)
 
-        dt = np.diff(np.r_[0, times])*(self.freq/(1<<time_shift))
+        dt = np.diff(np.r_[0, times])*(self.freq/(1<<time_shift)) - 1
         # FIXME: clipped intervals cumulatively skew
         # subsequent ones
         np.clip(dt, self.min_time, self.max_time, out=dt)

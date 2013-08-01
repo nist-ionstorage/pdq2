@@ -131,30 +131,27 @@ class DacOut(Module):
 
         self.trigger = Signal()
         self.aux = Signal()
+        self.data = Signal(16)
 
         line = Record(line_layout)
 
-        self.data = Signal(16)
         dt_dec = Signal(16)
-        next_triggers = Signal()
-        self.comb += next_triggers.eq(self.line_in.stb &
-                self.line_in.payload.header.trigger)
         hold = Signal()
-        self.comb += hold.eq(line.header.wait &
-            ~(self.trigger | next_triggers))
-        delay = Signal()
-        self.comb += delay.eq(dt_dec > 1)
+        self.comb += hold.eq(line.header.wait & ~(self.trigger |
+            (self.line_in.stb & self.line_in.payload.header.trigger)))
         tic = Signal()
-        self.comb += tic.eq(~delay & (line.dt > 1))
-        self.comb += self.line_in.ack.eq(~delay & ~tic & ~hold)
+        self.comb += tic.eq(dt_dec == 0)
+        toc = Signal()
+        self.comb += toc.eq(line.dt == 0)
+        self.comb += self.line_in.ack.eq(tic & toc & ~hold)
         complete = Signal()
         self.comb += complete.eq(self.line_in.stb & self.line_in.ack)
     
         lp = self.line_in.payload
 
         subs = [
-            Volt(lp, line, complete & (lp.header.typ == 0), tic),
-            Dds(lp, line, complete & (lp.header.typ == 1), tic),
+            Volt(lp, line, complete & (lp.header.typ == 0), tic & ~toc),
+            Dds(lp, line, complete & (lp.header.typ == 1), tic & ~toc),
             ]
 
         for i, sub in enumerate(subs):
@@ -162,19 +159,24 @@ class DacOut(Module):
         self.sync += self.data.eq(optree("+", [
             sub.data for sub in subs]))
 
+        line_dt_dec = Signal(16)
+        lp_dt_dec = Signal(16)
+        self.comb += lp_dt_dec.eq((1<<lp.header.shift) - 1)
+
         self.sync += [
-                If(delay,
+                If(~tic,
                     dt_dec.eq(dt_dec - 1),
                 ),
-                If(tic,
+                If(tic & ~toc,
                     line.dt.eq(line.dt - 1),
-                    dt_dec.eq(1<<line.header.shift),
+                    dt_dec.eq(line_dt_dec),
                 ),
                 If(complete,
                     line.header.eq(lp.header),
                     line.dt.eq(lp.dt),
                     self.aux.eq(lp.header.aux),
-                    dt_dec.eq(1<<lp.header.shift),
+                    dt_dec.eq(lp_dt_dec),
+                    line_dt_dec.eq(lp_dt_dec),
                 )]
 
 
