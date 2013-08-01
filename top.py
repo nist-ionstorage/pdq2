@@ -36,6 +36,17 @@ class Soc(Module):
 
         self.submodules.comm = Comm(platform.request("comm"), dacs)
         
+        #self.clock_domains.cd_sys_nor = ClockDomain(reset_less=True)
+        #self.comb += self.cd_sys_nor.clk.eq(self.cd_sys.clk)
+        #rst_counter = Signal(10)
+        #self.sync.sys_nor += [
+        #        If(rst_counter != 1023,
+        #            rst_counter.eq(rst_counter + 1),
+        #        ),
+        #        If(self.comm.ctrl.reset,
+        #            rst_counter.eq(0),
+        #        )]
+        #self.comb += self.cd_sys.rst.eq(rst_counter != 1023)
         self.comb += self.cd_sys.rst.eq(self.comm.ctrl.reset)
 
         clkin = platform.request("clk50")

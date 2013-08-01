@@ -314,7 +314,7 @@ def main():
         fig.savefig(args.plot)
 
     dev = Pdq(serial=args.serial)
-    dev.write_cmd("RESET_EN")
+    # dev.write_cmd("RESET_EN") # don't until rd precharge is met
     data = []
     channels = (args.channel is None) and range(9) or [args.channel]
     for channel in channels:
