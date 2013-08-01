@@ -254,7 +254,7 @@ class Dac(Module):
         self.out = DacOut()
         g = DataFlowGraph()
         if fifo:
-            self.fifo = SyncFIFOActor(line_layout, 8)
+            self.fifo = SyncFIFOActor(line_layout, 16)
             g.add_connection(self.parser, self.fifo, None, "di")
             g.add_connection(self.fifo, self.out, "do", None)
         else:
