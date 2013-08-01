@@ -152,11 +152,15 @@ class DacOut(Module):
     
         lp = self.line_in.payload
 
-        self.sync += self.data.eq(0)
-        for Sub in Dds, Volt:
-            sub = Sub(lp, line, complete, tic)
+        subs = [
+            Volt(lp, line, complete & (lp.header.typ == 0), tic),
+            Dds(lp, line, complete & (lp.header.typ == 1), tic),
+            ]
+
+        for i, sub in enumerate(subs):
             self.submodules += sub
-            self.sync += If(sub.valid, self.data.eq(sub.data))
+        self.sync += self.data.eq(optree("+", [
+            sub.data for sub in subs]))
 
         self.sync += [
                 If(delay,
@@ -176,14 +180,10 @@ class DacOut(Module):
 
 class Volt(Module):
     def __init__(self, lp, line, complete, tic):
-        self.valid = Signal()
         self.data = Signal(16)
 
         v = [Signal(48) for i in range(4)]
-        self.comb += [
-                self.data.eq(v[0][32:]),
-                self.valid.eq(line.header.typ == 0),
-                ]
+        self.comb += self.data.eq(v[0][32:])
 
         self.sync += [
                 If(tic,
@@ -203,11 +203,7 @@ class Dds(Module):
         self.submodules.cordic = Cordic(width=16, guard=None,
                 eval_mode="pipelined", cordic_mode="rotate",
                 func_mode="circular")
-        self.valid = Signal()
         self.data = Signal(16)
-
-        valid_sr = Signal(self.cordic.latency)
-        self.sync += valid_sr.eq(Cat(line.header.typ == 1, valid_sr))
 
         z = [Signal(48) for i in range(3)]
         x = [Signal(32) for i in range(2)]
@@ -216,7 +212,6 @@ class Dds(Module):
                 self.cordic.yi.eq(0),
                 self.cordic.zi.eq(z[0][32:]),
                 self.data.eq(self.cordic.xo),
-                self.valid.eq(valid_sr[-1]),
                 ]
         self.sync += [
                 If(tic,
