@@ -72,12 +72,26 @@ class MemWriter(Module):
 
 class Ctrl(Module):
     def __init__(self, pads, dacs):
+        self.clock_domains.cd_nor = ClockDomain("nor", reset_less=True)
+        self.reset = Signal()
+        rst_t = 16
+        rst_counter = Signal(max=rst_t)
+        rst_act = Signal()
+        self.comb += self.cd_nor.clk.eq(ClockSignal())
+        self.comb += self.reset.eq(rst_counter != rst_t - 1)
+        self.sync.nor += [
+                If(self.reset,
+                    rst_counter.eq(rst_counter + 1),
+                ),
+                If(rst_act,
+                    rst_counter.eq(0),
+                )]
+
         self.command_in = Sink(data_layout)
         self.comb += self.command_in.ack.eq(1) # can alway accept
         self.busy = Signal()
         self.comb += self.busy.eq(~self.command_in.ack | self.command_in.stb)
         
-        self.reset = Signal()
         self.comb += pads.reset.eq(self.reset)
         self.trigger = Signal()
         self.arm = Signal()
@@ -95,8 +109,8 @@ class Ctrl(Module):
             dacs)) != 0)
        
         commands = {
-                "RESET_EN":    (0x00, [self.reset.eq(1)]),
-                "RESET_DIS":   (0x01, [self.reset.eq(0)]),
+                "RESET_EN":    (0x00, [rst_act.eq(1)]),
+                "RESET_DIS":   (0x01, [rst_act.eq(0)]),
                 "TRIGGER_EN":  (0x02, [self.trigger.eq(1)]),
                 "TRIGGER_DIS": (0x03, [self.trigger.eq(0)]),
                 "ARM_EN":      (0x04, [self.arm.eq(1)]),
