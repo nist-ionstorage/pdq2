@@ -73,17 +73,16 @@ class MemWriter(Module):
 class Ctrl(Module):
     def __init__(self, pads, dacs):
         self.clock_domains.cd_nor = ClockDomain("nor", reset_less=True)
-        self.reset = Signal()
-        rst_t = 16
-        rst_counter = Signal(max=rst_t)
-        rst_act = Signal()
         self.comb += self.cd_nor.clk.eq(ClockSignal())
+        rst_t = 16
+        rst_act = Signal()
+        rst_counter = Signal(max=rst_t)
+        self.reset = Signal()
         self.comb += self.reset.eq(rst_counter != rst_t - 1)
         self.sync.nor += [
                 If(self.reset,
                     rst_counter.eq(rst_counter + 1),
-                ),
-                If(rst_act,
+                ).Elif(rst_act,
                     rst_counter.eq(0),
                 )]
 
@@ -97,7 +96,8 @@ class Ctrl(Module):
         self.arm = Signal()
  
         for dac in dacs:
-            self.comb += [
+            #self.comb += [
+            self.sync += [
                     dac.parser.interrupt.eq(pads.interrupt),
                     dac.out.trigger.eq(pads.trigger | self.trigger),
                     dac.parser.arm.eq(self.arm),

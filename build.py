@@ -4,7 +4,7 @@ from top import Soc
 
 def main():
     platform = Platform()
-    soc = Soc(platform)
+    soc = Soc(platform, fast=False)
     platform.build_cmdline(soc)
 
 
