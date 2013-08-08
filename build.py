@@ -1,3 +1,5 @@
+# Robert Jordens <jordens@gmail.com> 2013
+
 from platform import Platform
 from top import Soc
 

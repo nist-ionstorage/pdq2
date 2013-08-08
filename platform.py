@@ -1,3 +1,5 @@
+# Robert Jordens <jordens@gmail.com> 2013
+
 from mibuild.generic_platform import *
 from mibuild.xilinx_ise import XilinxISEPlatform, CRG_SE
 

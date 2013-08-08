@@ -1,3 +1,5 @@
+# Robert Jordens <jordens@gmail.com> 2013
+
 from migen.fhdl.std import *
 from migen.genlib.record import Record
 from migen.flow.actor import *
