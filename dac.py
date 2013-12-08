@@ -4,7 +4,7 @@ from migen.genlib.misc import optree
 from migen.flow.actor import Source, Sink
 from migen.flow.network import CompositeActor, DataFlowGraph
 from migen.genlib.cordic import Cordic
-from migen.genlib.fifo import SyncFIFO
+from migen.actorlib.fifo import SyncFIFO
 
 
 line_layout = [
@@ -231,32 +231,15 @@ class Dds(Module):
                 )]
 
 
-class SyncFIFOActor(Module):
-    def __init__(self, layout, *args, **kwargs):
-        self.submodules.fifo = SyncFIFO(layout, *args, **kwargs)
-        self.di = Sink(layout)
-        self.do = Source(layout)
-        self.comb += [
-                self.di.ack.eq(self.fifo.writable),
-                self.fifo.we.eq(self.di.stb & self.di.ack),
-                self.fifo.din.eq(self.di.payload),
-                self.do.stb.eq(self.fifo.readable),
-                self.fifo.re.eq(self.do.stb & self.do.ack),
-                self.do.payload.eq(self.fifo.dout),
-            ]
-        self.busy = Signal()
-        self.comb += self.busy.eq(0)
-
-
 class Dac(Module):
     def __init__(self, fifo=True, **kwargs):
         self.parser = Parser(**kwargs)
         self.out = DacOut()
         g = DataFlowGraph()
         if fifo:
-            self.fifo = SyncFIFOActor(line_layout, 16)
-            g.add_connection(self.parser, self.fifo, None, "di")
-            g.add_connection(self.fifo, self.out, "do", None)
+            self.fifo = SyncFIFO(line_layout, 16)
+            g.add_connection(self.parser, self.fifo, None, "sink")
+            g.add_connection(self.fifo, self.out, "source", None)
         else:
             g.add_connection(self.parser, self.out)
         self.submodules.graph = CompositeActor(g)
