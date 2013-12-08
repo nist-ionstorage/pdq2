@@ -263,8 +263,8 @@ class TB(Module):
         #    s.wr(self.dac.parser.interrupt, 0)
         if (s.rd(self.dac.out.line_in.ack) and
                 s.rd(self.dac.out.line_in.stb)):
-            f = self.dac.out.line
-            print("line {} {}".format(s.rd(f.dt), s.rd(f.v0)//(1<<32)))
+            print("line {} {}".format(s.cycle_counter,
+                s.rd(self.dac.out.data)))
 
 
 def main():
