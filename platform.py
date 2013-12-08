@@ -75,6 +75,10 @@ _io = [
 
 
 class Platform(XilinxISEPlatform):
+    xst_opt = """-ifmt MIXED
+-opt_level 2
+-opt_mode SPEED
+-register_balancing yes"""
     def __init__(self):
         XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,
                 lambda p: CRG_SE(p, "clk50", None, 20.))
