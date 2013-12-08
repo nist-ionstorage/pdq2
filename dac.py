@@ -238,8 +238,8 @@ class Dac(Module):
         g = DataFlowGraph()
         if fifo:
             self.fifo = SyncFIFO(line_layout, 16)
-            g.add_connection(self.parser, self.fifo, None, "sink")
-            g.add_connection(self.fifo, self.out, "source", None)
+            g.add_connection(self.parser, self.fifo)
+            g.add_connection(self.fifo, self.out)
         else:
             g.add_connection(self.parser, self.out)
         self.submodules.graph = CompositeActor(g)
