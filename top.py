@@ -119,8 +119,6 @@ class TB(Module):
             ]
 
     def __init__(self, mem=None, top=None):
-        self.comb += ClockSignal().eq(top.clock_domains[0].clk)
-
         dacs = []
         for i in range(3):
             dac = Dac()
@@ -129,19 +127,18 @@ class TB(Module):
             dac.parser.mem.init = [0] * dac.parser.mem.depth
         self.pads = Record(self.comm_pads)
         self.submodules.comm = Comm(self.pads, dacs, mem)
-        self.comb += ResetSignal().eq(top.clock_domains[0].rst | self.comm.ctrl.reset)
         self.outputs = []
 
-    def do_simulation(self, s):
-        if s.cycle_counter == 0:
-            s.wr(self.pads.interrupt, 7) # pullup
-            s.wr(self.pads.adr, 15) # active low, pullup
-            s.wr(self.pads.trigger, 1) # pullup
-        self.outputs.append(s.rd(self.dac1.out.data))
+    def do_simulation(self, selfp):
+        if selfp.simulator.cycle_counter == 0:
+            selfp.pads.interrupt = 7 # pullup
+            selfp.pads.adr = 15 # active low, pullup
+            selfp.pads.trigger = 1 # pullup
+        self.outputs.append(selfp.dac1.out.data)
 
 
 def main():
-    from migen.sim.generic import Simulator, TopLevel
+    from migen.sim.generic import run_simulation
     from migen.sim.icarus import Runner
     from matplotlib import pyplot as plt
     import numpy as np
@@ -155,11 +152,9 @@ def main():
     mem = p.single_frame(t, v, channel=1, derivatives=4,
             aux=t<.5e-6, repeat=2, wait_last=True, time_shift=0)
     mem = p.cmd("RESET_EN") + mem + p.cmd("ARM_EN")
-    top = TopLevel("top.vcd", clk_period=10, cd_name="sim")
-    tb = TB(list(mem), top)
-    sim = Simulator(tb, top) #, Runner(keep_files=True))
+    tb = TB(list(mem))
     n = 6000
-    sim.run(n)
+    run_simulation(tb, vcd_name="top.vcd", ncycles=n)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
     plt.plot(t, v)

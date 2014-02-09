@@ -24,26 +24,26 @@ class SimFt245r_rx(Module):
         self.state = "fill"
         self.wait = 20
 
-    def do_simulation(self, s):
+    def do_simulation(self, selfp):
         self.wait = max(0, self.wait - 1)
         if self.state == "fill":
-            s.wr(self.pads.rxfl, 1)
+            selfp.pads.rxfl = 1
             if self.data and self.wait == 0:
-                s.wr(self.pads.rxfl, 0)
+                selfp.pads.rxfl = 0
                 self.state = "read"
         elif self.state == "read":
-            if s.rd(self.pads.rdl) == 0:
+            if selfp.pads.rdl == 0:
                 self.wait = random.choice([0, 4]) # 5 - wr
                 self.state = "setup"
         elif self.state == "setup":
             if self.wait == 0:
-                s.wr(self.dat, self.data.pop(0))
+                selfp.dat = self.data.pop(0)
                 self.state = "wait"
-            if s.rd(self.pads.rdl) == 1:
+            if selfp.pads.rdl == 1:
                 self.wait = random.choice([0, 1])
                 self.state = "delay"
         elif self.state == "wait":
-            if s.rd(self.pads.rdl) == 1:
+            if selfp.pads.rdl == 1:
                 self.wait = random.choice([0, 1])
                 self.state = "delay"
         elif self.state == "delay":

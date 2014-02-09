@@ -254,24 +254,24 @@ class TB(Module):
             self.dac.parser.mem.init = mem
         self.outputs = []
 
-    def do_simulation(self, s):
-        self.outputs.append(s.rd(self.dac.out.data))
-        if s.cycle_counter == 30:
-            s.wr(self.dac.parser.arm, 1)
-        #    s.wr(self.dac.parser.interrupt, 2)
-        #if s.cycle_counter == 100:
-        #    s.wr(self.dac.out.trigger, 1)
-        #if s.cycle_counter == 200:
-        #    s.wr(self.dac.parser.interrupt, 0)
-        if (s.rd(self.dac.out.line_in.ack) and
-                s.rd(self.dac.out.line_in.stb)):
-            print("line {} {}".format(s.cycle_counter,
-                s.rd(self.dac.out.data)))
-
+    def gen_simulation(self, selfp):
+        self.outputs.append(selfp.dac.out.data)
+        if selfp.simulator.cycle_counter == 30:
+            selfp.dac.parser.arm = 1
+        #    selfp.dac.parser.interrupt = 2
+        #if selfp.simulator.cycle_counter == 100:
+        #    selfp.dac.out.trigger = 1
+        #if selfp.simulator.cycle_counter == 200:
+        #    self.dac.parser.interrupt = 0
+        if (selfp.dac.out.line_in.ack and
+                selfp.dac.out.line_in.stb):
+            print("line {} {}".format(selfp.simulator.cycle_counter,
+                selfp.dac.out.data))
+        yield
 
 def main():
     from migen.fhdl import verilog
-    from migen.sim.generic import Simulator, TopLevel
+    from migen.sim.generic import run_simulation
     from matplotlib import pyplot as plt
     import numpy as np
     from scipy import interpolate
@@ -289,9 +289,8 @@ def main():
     mem = list(np.fromstring(mem, "<u2"))
 
     tb = TB(mem)
-    sim = Simulator(tb, TopLevel("dac.vcd"))
     n = 200
-    sim.run(n)
+    run_simulation(tb, ncycles=n, vcd_name="dac.vcd")
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
     spframe = interpolate.splrep(t, v, s=0, k=3)
