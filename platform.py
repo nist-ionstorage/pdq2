@@ -81,6 +81,8 @@ class Platform(XilinxISEPlatform):
 -opt_level 2
 -opt_mode SPEED
 -register_balancing yes"""
+    bitgen_opt = "-g GTS_cycle:3 -g LCK_cycle:4 -g GWE_cycle:5 " \
+            "-g DONE_cycle:6 -g Binary:Yes"
     ise_commands = """
 trce -v 100 -fastpaths -o {build_name} {build_name}.ncd {build_name}.pcf
 """
