@@ -9,7 +9,7 @@ from comm import Comm
 
 
 class Soc(Module):
-    def __init__(self, platform, fast=True):
+    def __init__(self, platform, fast=True, silence=False):
         self.clock_domains.cd_sys = ClockDomain()
         clk_p = self.cd_sys.clk
         clk_n = Signal()
@@ -23,18 +23,29 @@ class Soc(Module):
 
             pads = platform.request("dac", i)
             # inverted clocks ensure setup and hold times of data
-            self.comb += pads.clk_p.eq(clk_n), pads.clk_n.eq(clk_p)
-            self.specials += Instance("OBUFDS",
-                    i_I=clk_n,
-                    o_O=pads.data_clk_p,
-                    o_OB=pads.data_clk_n,
-                    )
+            if silence:
+                self.specials += Instance("OFDDRCPE",
+                        i_C0=clk_p, i_C1=clk_n, i_CE=~dac.out.silence,
+                        i_D0=0, i_D1=1, i_CLR=0, i_PRE=0, o_Q=pads.clk_p)
+                self.specials += Instance("OFDDRCPE",
+                        i_C0=clk_p, i_C1=clk_n, i_CE=~dac.out.silence,
+                        i_D0=1, i_D1=0, i_CLR=0, i_PRE=0, o_Q=pads.clk_n)
+                dclk = Signal()
+                self.specials += Instance("OFDDRCPE",
+                        i_C0=clk_p, i_C1=clk_n, i_CE=~dac.out.silence,
+                        i_D0=0, i_D1=1, i_CLR=0, i_PRE=0, o_Q=dclk)
+                self.specials += Instance("OBUFDS",
+                        i_I=dclk,
+                        o_O=pads.data_clk_p, o_OB=pads.data_clk_n)
+            else:
+                self.comb += pads.clk_p.eq(clk_n), pads.clk_n.eq(clk_p)
+                self.specials += Instance("OBUFDS",
+                        i_I=clk_n,
+                        o_O=pads.data_clk_p, o_OB=pads.data_clk_n)
             for i in range(16):
                 self.specials += Instance("OBUFDS",
                         i_I=~dac.out.data[i],
-                        o_O=pads.data_p[i],
-                        o_OB=pads.data_n[i],
-                        )
+                        o_O=pads.data_p[i], o_OB=pads.data_n[i])
         #TIMEGRP "dac_Out" OFFSET = OUT 10 ns AFTER "clk_dac";
 
         self.submodules.comm = Comm(platform.request("comm"), dacs)

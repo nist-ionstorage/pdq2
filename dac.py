@@ -17,7 +17,8 @@ line_layout = [
             ("trigger", 1),
             ("shift", 4),
             ("aux", 1),
-            ("reserved", 3),
+            ("silence", 1),
+            ("reserved", 2),
         ]),
         ("dt", 16),
         ("data", 15*16),
@@ -134,6 +135,7 @@ class DacOut(Module):
 
         self.trigger = Signal()
         self.aux = Signal()
+        self.silence = Signal()
         self.data = Signal(16)
 
         line = Record(line_layout)
@@ -178,6 +180,7 @@ class DacOut(Module):
                     line.header.eq(lp.header),
                     line.dt.eq(lp.dt),
                     self.aux.eq(lp.header.aux),
+                    self.silence.eq(lp.header.silence),
                     dt_dec.eq(lp_dt_dec),
                     line_dt_dec.eq(lp_dt_dec),
                 )]
