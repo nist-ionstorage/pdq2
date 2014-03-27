@@ -82,9 +82,9 @@ class Platform(XilinxISEPlatform):
 -opt_mode SPEED
 -register_balancing yes"""
     bitgen_opt = "-g GTS_cycle:3 -g LCK_cycle:4 -g GWE_cycle:5 " \
-            "-g DONE_cycle:6 -g Binary:Yes"
+            "-g DONE_cycle:6 -g Binary:Yes -w"
     ise_commands = """
-trce -v 100 -fastpaths -o {build_name} {build_name}.ncd {build_name}.pcf
+trce -v 12 -fastpaths -o {build_name} {build_name}.ncd {build_name}.pcf
 """
     def __init__(self):
         XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,
