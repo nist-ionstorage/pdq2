@@ -1,7 +1,8 @@
 # Robert Jordens <jordens@gmail.com> 2013
 
 from mibuild.generic_platform import *
-from mibuild.xilinx_ise import XilinxISEPlatform, CRG_SE
+from mibuild.xilinx_ise import XilinxISEPlatform
+from mibuild.crg import SimpleCRG
 
 _io = [
         ("clk50", 0, Pins("P80"), IOStandard("LVCMOS25")),
@@ -88,4 +89,10 @@ trce -v 12 -fastpaths -o {build_name} {build_name}.ncd {build_name}.pcf
 """
     def __init__(self):
         XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,
-                lambda p: CRG_SE(p, "clk50", None, 20.))
+                lambda p: SimpleCRG(p, "clk50", None))
+
+    def do_finalize(self, fragment):
+        try:
+            self.add_period_constraint(self.lookup_request("clk50"), 20)
+        except ConstrainError:
+            pass
