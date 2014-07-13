@@ -7,6 +7,9 @@
 import logging, struct
 import numpy as np
 from scipy import interpolate
+import warnings
+
+logger = logging.getLogger("Pdq")
 
 
 class PyFtdi(object):
@@ -19,6 +22,10 @@ class PyFtdi(object):
             raise pylibftdi.FtdiError(written,
                     self.dev.get_error_string())
         return written
+
+    def close(self):
+        self.dev.close()
+        del self.dev
 
 
 class D2xxFtdi(object):
@@ -33,6 +40,10 @@ class D2xxFtdi(object):
         written = self.dev.write(str(data))
         return written
 
+    def close(self):
+        self.dev.close()
+        del self.dev
+
 
 class FileFtdi(object):
     def __init__(self, serial="unknown"):
@@ -42,30 +53,39 @@ class FileFtdi(object):
         return len(data)
 
 
+Ftdi = None
+
 try:
     import pylibftdi
     Ftdi = PyFtdi
 except ImportError:
-    try:
-        import ftd2xx
-        Ftdi = D2xxFtdi
-    except ImportError:
-        Ftdi = FileFtdi
+    pass
+
+try:
+    import ftd2xx
+    Ftdi = D2xxFtdi
+except ImportError:
+    pass
+
+if Ftdi is None:
+    Ftdi = FileFtdi
+    warnings.warn("no ftdi library found. writing to files")
 
 
 class Pdq(object):
     """
     PDQ DAC (a.k.a. QC_Waveform)
     """
-    range = 1<<15 # signed 16 bit DAC
-    scale = range/10. # LSB/V
+    max_val = 1<<15 # signed 16 bit DAC
+    max_out = 10.
+    scale = max_val/max_out # LSB/V
     freq = 100e6 # samples/s
     min_time = 11 # processing time for a mode=4 point
-    max_time = range # signed 16 bit timer
+    max_time = 1<<16 # unsigned 16 bit timer
     num_boards = 3
     num_dacs = 3
     max_data = 8*(1<<10) # 6144 data buffer size per channel
-    escape = b"\xaa"
+    escape_char = b"\xaa"
 
     commands = {
             "RESET_EN":    b"\x00",
@@ -75,15 +95,38 @@ class Pdq(object):
             "ARM_EN":      b"\x04",
             "ARM_DIS":     b"\x05",
             }
-        
+
     def __init__(self, serial=None):
         self.dev = Ftdi(serial)
 
+    def close(self):
+        self.dev.close()
+        del self.dev
+
     def cmd(self, cmd):
-        return bytes(self.escape + self.commands[cmd])
+        return self.escape_char + self.commands[cmd]
+
+    def write_cmd(self, cmd):
+        return self.write(self.cmd(cmd))
+
+    def escape(self, data):
+        return data.replace(self.escape_char, self.escape_char +
+                self.escape_char)
+
+    def write(self, *segments):
+        """
+        writes data segments to device
+        """
+        for segment in segments:
+            written = self.dev.write(segment)
+            if written < len(segment):
+                logger.error("wrote only %i of %i", written, len(segment))
+
+    def write_data(self, *segments):
+        return self.write(*(self.escape(seg) for seg in segments))
 
     @staticmethod
-    def interpolate(times, voltages, mode):
+    def interpolate(times, voltages, order):
         """
         calculate b-spline interpolation derivatives for voltage data
         according to interpolation mode
@@ -93,16 +136,14 @@ class Pdq(object):
         the last voltages/derivatives (irrelevant since the section ends
         here)
         """
-        derivatives = []
-        if mode > 1:
-            spline = interpolate.splrep(times, voltages, s=0, k=mode-1)
-            derivatives += [interpolate.splev(times, spline, der=i)[:-1]
-                    for i in range(1, mode)]
-        voltages = voltages[:-1]
-        times = times[1:]
-        return times, voltages, derivatives
+        derivatives = [voltages[:-1]]
+        if order > 1:
+            spline = interpolate.splrep(times, voltages, k=order-1)
+            derivatives += [interpolate.splev(times[:-1], spline, der=i)
+                    for i in range(1, order)]
+        return np.diff(times), derivatives
 
-    def frame(self, times, voltages, derivatives=4, aux=None,
+    def frame(self, times, derivatives, order=4, aux=None,
             time_shift=0, trigger_first=False, wait_last=True):
         """
         serialize frame data
@@ -111,16 +152,15 @@ class Pdq(object):
         be the interpolation, else it should be a list of derivatives
         """
         # FIXME implement DDS mode
-        if type(derivatives) is type(1):
-            times, voltages, derivatives = self.interpolate(times,
-                    voltages, derivatives)
-        line_len = {0: 0, 1: 1, 2: 3, 3: 6, 4: 9}[len(derivatives) + 1]
+        if not isinstance(derivatives, list):
+            derivatives = np.clip(derivatives, -self.max_out, self.max_out)
+            times, derivatives = self.interpolate(times, derivatives, order)
+        line_len = {0: 0, 1: 1, 2: 3, 3: 6, 4: 9}[len(derivatives)]
         length = len(times)
-        voltages = [voltages] + list(derivatives)
 
         frame = []
 
-        head = np.zeros((length,), "u2")
+        head = np.zeros((length,), "<u2")
         head[:] |= line_len<<0 # 4
         #head[:] |= 0<<4 # typ # 2
         head[-1] |= wait_last<<6 # 1
@@ -131,26 +171,26 @@ class Pdq(object):
         #head[:] |= reserved<<13 # 3
         frame.append(head)
 
-        dt = np.diff(np.r_[0, times])*(self.freq/(1<<time_shift)) - 1
+        dt = np.rint(times*(self.freq/(1<<time_shift))) - 1
         # FIXME: clipped intervals cumulatively skew
         # subsequent ones
         np.clip(dt, self.min_time, self.max_time, out=dt)
-        frame.append(dt.astype("u2"))
+        frame.append(dt.astype("<u2"))
 
         byts = [2, 4, 6, 6]
-        for i, (v, byt) in enumerate(zip(voltages, byts)):
-            scale = self.scale*(1<<(8*(byt-2)))/self.freq**i
-            v = np.rint(scale*v).astype("i8")
-            # np.clip(v, -self.range, self.range, out=v)
-            if byt <= 4:
-                frame.append(v.astype("i%i" % byt))
-            else: # no i6 type
-                frame.append(v.astype("i4"))
-                frame.append((v>>32).astype("i%i" % (byt-4)))
+        for i, (v, byt) in enumerate(zip(derivatives, byts)):
+            scale = self.scale*(1 << (8*(byt - 2)))/self.freq**i
+            v = np.rint(scale*v).astype("<i8")
+            # np.clip(v, -self.max_val, self.max_val, out=v)
+            if byt == 6: # no i6 type
+                frame.append(v.astype("<i4"))
+                frame.append((v >> 32).astype("<i%i" % (byt - 4)))
+            else:
+                frame.append(v.astype("<i%i" % byt))
 
-        frame = np.rec.fromarrays(frame, byteorder="<") # interleave
+        frame = np.rec.fromarrays(frame) # interleave
         data_length = len(bytes(frame.data))
-        logging.debug("frame %s dtype %s shape %s length %s",
+        logger.debug("frame %s dtype %s shape %s length %s",
                 frame, frame.dtype, frame.shape, data_length)
         bpl = 2*(2 + line_len)
         assert data_length == bpl*length, (data_length, bpl, length,
@@ -160,67 +200,42 @@ class Pdq(object):
     @staticmethod
     def add_frame_header(frame, repeat, next):
         head = struct.pack("<BBH", next, repeat, frame.shape[0])
-        logging.debug("frame header %r", head)
+        logger.debug("frame header %r", head)
         return head + bytes(frame.data)
 
     def combine_frames(self, frames):
         lens = [len(frame)//2 for frame in frames[:-1]] # 16 bits
         mems = np.cumsum([len(frames)] + lens)
-        chunk = bytes(mems.astype("<u2").data)
-        logging.debug("mem len %i, %r", len(chunk), chunk)
+        chunk = bytes(mems.astype("<u2").data) # jump table
+        logger.debug("mem len %i, %r", len(chunk), chunk)
         for frame in frames:
             chunk += frame
         assert len(chunk) <= self.max_data
         return chunk
 
-    def add_mem_header(self, board, dac, mem_adr, chunk):
+    def add_mem_header(self, board, dac, adr, chunk):
         length = len(chunk)//2 # 16 bit memory
         assert dac in range(self.num_dacs)
         assert board in range(self.num_boards)
-        head = struct.pack("<BBHH", board, dac, mem_adr, length)
-        logging.debug("mem header %r", head)
+        head = struct.pack("<BBHH", board, dac, adr, length)
+        logger.debug("mem header %r", head)
         return head + chunk
 
-    def multi_frame(self, times_voltages, channel, repeat=1,
-            next=None, **frame_kwargs):
+    def multi_frame(self, times_voltages, channel, repeat=0,
+            next=None, **kwargs):
         frames = []
         for i, (t, v) in enumerate(times_voltages):
             n = i if next is None else next
-            frame = self.frame(t, v, **frame_kwargs)
+            if t is None:
+                frame = b""
+            else:
+                frame = self.frame(t, v, **kwargs)
             frames.append(self.add_frame_header(frame, repeat, n))
         data = self.combine_frames(frames)
         board, dac = divmod(channel, self.num_dacs)
         data = self.add_mem_header(board, dac, 0, data)
-        #logging.debug("write %s, len %i", list(map(hex, data)), len(data))
-        # escape escape
-        data = data.replace(self.escape, self.escape + self.escape)
         return data
 
-    def single_frame(self, times, voltages, **kwargs):
-        """
-        interpolate, serialize and upload 8 irq data for one channel
-        """
-        return self.multi_frame([(times, voltages)], **kwargs)
-
-    def write(self, *segments):
-        """
-        writes data segments to device
-        """
-        for segment in segments:
-            #logging.debug("write %s, len %i", list(map(hex, segment)),
-            #    len(segment)) 
-            written = self.dev.write(segment)
-            if written < len(segment):
-                logging.error("wrote only %i of %i", written, len(segment))
-
-    def set_frame_addr(self, board, channel, frame, addr):
-        data = struct.pack("<H", addr)
-        data = self.add_mem_header(board, channel, frame, data)
-        return self.write(data)
-
-    def write_cmd(self, cmd):
-        return self.write(self.cmd(cmd))
-    
 
 def main():
     import argparse
@@ -261,7 +276,7 @@ def main():
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    times = eval(args.times)
+    times = eval(args.times, globals(), {})
     voltages = eval(args.voltages, globals(), dict(t=times))
 
     if args.plot:
@@ -278,7 +293,6 @@ def main():
         fig.savefig(args.plot)
 
     dev = Pdq(serial=args.serial)
-    # dev.write_cmd("RESET_EN") # don't until rd precharge is met
     data = []
     channels = (args.channel is None) and range(9) or [args.channel]
     for channel in channels:
@@ -286,13 +300,20 @@ def main():
             v = [.1*frame + channel + voltages for frame in range(8)]
             t = [times] * len(v)
             data.append(dev.multi_frame(zip(t, v), channel=channel,
-                    derivatives=args.mode))
+                    order=args.mode))
         else:
-            data.append(dev.single_frame(times, voltages, channel=channel,
-                    derivatives=args.mode))
-    dev.write(*data)
-    dev.write_cmd("ARM_DIS" if args.disarm else "ARM_EN")
-    dev.write_cmd("TRIGGER_EN" if args.free else "TRIGGER_DIS")
+            tv = [(None, None)] * 8
+            tv[args.frame] = times, voltages
+            data.append(dev.multi_frame(tv, channel=channel,
+                    order=args.mode))
+    dev.write_cmd("RESET_EN")
+    dev.write_cmd("ARM_DIS")
+    dev.write_cmd("TRIGGER_DIS")
+    dev.write_data(*data)
+    if not args.disarm:
+        dev.write_cmd("ARM_EN")
+    if args.free:
+        dev.write_cmd("TRIGGER_EN")
 
 
 if __name__ == "__main__":

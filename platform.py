@@ -9,16 +9,16 @@ _io = [
 
         ("comm", 0,
             Subsignal("data", Pins("P101 P91 P76 P72 P71 P60 P58 P57")),
-            Subsignal("rdl", Pins("P97")), 
+            Subsignal("rdl", Pins("P97")),
             Subsignal("rxfl", Pins("P54")),
 
             Subsignal("rd_in", Pins("P159")), #GO_1
             Subsignal("rd_out", Pins("P102")), #G1
 
             Subsignal("reset", Pins("P96")), # dac_reset
-            
-            Subsignal("adr", Pins("P32 P6 P14 P43")),
-            Subsignal("trigger", Pins("P110")), #F1 
+
+            Subsignal("adr", Pins("P32 P6 P14 P43")), # active low
+            Subsignal("trigger", Pins("P110")), #F1
             Subsignal("interrupt", Pins("P118 P124 P98")), #F2 F3 F4
             Subsignal("aux", Pins("P99")), #F5 out
 

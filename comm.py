@@ -38,7 +38,7 @@ class MemWriter(Module):
         dac_adr = Signal(max=len(dacs))
         self.comb += dac_adr.eq(dev_adr[8:])
         listen = Signal()
-        self.comb += listen.eq(board_adr == ~pads.adr)
+        self.comb += listen.eq(board_adr == ~pads.adr) # active low
         data_len = Signal(16)
         mem_adr = Signal(16)
         self.comb += [mem.adr.eq(mem_adr) for mem in mems]
@@ -74,31 +74,17 @@ class MemWriter(Module):
 
 class Ctrl(Module):
     def __init__(self, pads, dacs):
-        self.clock_domains.cd_nor = ClockDomain("nor", reset_less=True)
-        self.comb += self.cd_nor.clk.eq(ClockSignal())
-        rst_t = 16
-        rst_act = Signal()
-        rst_counter = Signal(max=rst_t)
         self.reset = Signal()
-        self.comb += self.reset.eq(rst_counter != rst_t - 1)
-        self.sync.nor += [
-                If(self.reset,
-                    rst_counter.eq(rst_counter + 1),
-                ).Elif(rst_act,
-                    rst_counter.eq(0),
-                )]
+        self.trigger = Signal()
+        self.arm = Signal()
 
         self.command_in = Sink(data_layout)
-        self.comb += self.command_in.ack.eq(1) # can alway accept
         self.busy = Signal()
         self.comb += self.busy.eq(~self.command_in.ack | self.command_in.stb)
         
         self.comb += pads.reset.eq(self.reset)
-        self.trigger = Signal()
-        self.arm = Signal()
- 
+
         for dac in dacs:
-            #self.comb += [
             self.sync += [
                     dac.parser.interrupt.eq(pads.interrupt),
                     dac.out.trigger.eq(pads.trigger | self.trigger),
@@ -109,10 +95,10 @@ class Ctrl(Module):
         #self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
         self.comb += pads.go2_out.eq(Cat(*(~dac.out.busy for dac in
             dacs)) != 0)
-       
+
         commands = {
-                "RESET_EN":    (0x00, [rst_act.eq(1)]),
-                "RESET_DIS":   (0x01, [rst_act.eq(0)]),
+                "RESET_EN":    (0x00, [self.reset.eq(1)]),
+                "RESET_DIS":   (0x01, [self.reset.eq(0)]),
                 "TRIGGER_EN":  (0x02, [self.trigger.eq(1)]),
                 "TRIGGER_DIS": (0x03, [self.trigger.eq(0)]),
                 "ARM_EN":      (0x04, [self.arm.eq(1)]),
@@ -120,6 +106,7 @@ class Ctrl(Module):
                 }
         self.sync += If(self.command_in.stb, Case(self.command_in.payload.data,
             dict((code, act) for name, (code, act) in commands.items())))
+        self.comb += self.command_in.ack.eq(1) # can alway accept
 
 
 class Comm(Module):

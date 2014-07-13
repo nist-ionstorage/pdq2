@@ -8,6 +8,7 @@ from migen.flow.actor import Source
 from migen.genlib.fsm import FSM, NextState
 from migen.genlib.misc import timeline
 
+
 class SimFt245r_rx(Module):
     def __init__(self, pads, data):
         self.pads = pads
@@ -22,7 +23,7 @@ class SimFt245r_rx(Module):
                     pads.data.eq(0x55),
                 )]
         self.state = "fill"
-        self.wait = 20
+        self.wait = 10
 
     def do_simulation(self, selfp):
         self.wait = max(0, self.wait - 1)
@@ -48,7 +49,7 @@ class SimFt245r_rx(Module):
                 self.state = "delay"
         elif self.state == "delay":
             if self.wait == 0:
-                self.wait = random.choice([0, 5])
+                self.wait = random.choice([0, 3])
                 self.state = "fill"
 
 
@@ -72,7 +73,7 @@ class Ft245r_rx(Module):
         # t_RXFLh_RXFLl = 80ns (from FT245R)
         # t_RDLh_RDLl = 50ns + t_RXh_RXl (we understand this as a
         #    conditional addition)
-       
+
         # we read every t_hold + t_precharge + t_setup + 2 cycles
         # can only sustain 1MByte/s anyway at full speed USB
         # stb implicitly needs to be acked within a read cycle
@@ -80,7 +81,7 @@ class Ft245r_rx(Module):
         t_latch = int(ceil(50/clk)) # t_RDLl_Dv
         t_drop = t_latch + int(ceil(20/clk)) # slave skew
         t_refill = t_drop + int(ceil(50/clk)) # t_RDLh_RDLl
-        
+
         reading = Signal()
         # proxy rxfl to slaves, drive rdl
         self.sync += If(~reading & ~pads.rd_in, pads.rd_out.eq(~pads.rxfl))
