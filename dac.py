@@ -7,6 +7,7 @@ from migen.flow.actor import Source, Sink
 from migen.flow.network import CompositeActor, DataFlowGraph
 from migen.genlib.cordic import Cordic
 from migen.actorlib.fifo import SyncFIFO
+from migen.genlib.fsm import FSM, NextState
 
 
 line_layout = [
@@ -29,17 +30,23 @@ class Parser(Module):
     def __init__(self, mem_data_width=16, mem_adr_width=16,
             mem_depth=4*(1<<10)): # XC3S500E: 20BRAMS 18bits 1024loc
         self.specials.mem = Memory(width=mem_data_width, depth=mem_depth)
-        read = self.mem.get_port()
-        self.specials.read = read
+        self.specials.read = read = self.mem.get_port()
 
         self.line_out = Source(line_layout)
         self.arm = Signal()
+        self.interrupt = Signal(4)
         self.busy = Signal()
 
         complete = Signal()
         repeat = Signal(8)
         next_frame = Signal(8)
-        self.length = length = Signal(16)
+        length = Signal(16)
+        save_data = Signal(16)
+        delayed = Signal()
+        cur_frame = Signal(4)
+        repetitions = Signal(8)
+        save_interrupt = Signal(4)
+        line_ready = Signal() # all fields read
 
         self.comb += [
                 self.busy.eq(~self.line_out.stb | self.line_out.ack),
@@ -49,6 +56,20 @@ class Parser(Module):
         self.sync += If(complete, self.line_out.stb.eq(0))
 
         lp = self.line_out.payload
+
+        self.submodules.fsm = fsm = FSM(reset_state="IDLE")
+        fsm.delayed_enter("IRQD", "IRQ", 0)
+        fsm.act("IRQ", read.adr.eq(self.interrupt), NextState("FRAME"))
+        fsm.delayed_enter("FRAMED", "FRAME", 0)
+        fsm.act("FRAME", read.adr.eq(read.dat_r), NextState("MODE"))
+        fsm.act("MODE", NextState("LENGTH"))
+        fsm.act("LENGTH", length.eq(read.dat_r),
+                read_adr.eq(read_adr + 1), NextState("DT"))
+        fsm.act("MODE",)
+        fsm.act("LENGTH",)
+        fsm.act("DT",)
+        fsm.act("DATA",)
+
         read_seq = [ # WAIT0/1 are wait states for data->read.adr->read.dat_r
                 ("WAIT0", None, 0), ("IRQ", read.adr, 0), ("WAIT1", None, 1),
                 ("MODE", Cat(next_frame, repeat), 1), ("LENGTH", length, 1),
@@ -76,8 +97,6 @@ class Parser(Module):
         seq_actions = dict((states[st], read_next(reg, read_seq[i+1][0], inc))
                 for i, (st, reg, inc) in enumerate(read_seq[:-1]))
 
-        save_data = Signal(16)
-        delayed = Signal()
         seq_actions[states["HEADER"]] = [ # override
                 If(self.line_out.stb & ~self.line_out.ack & ~delayed,
                     # first delayed sending cycle
@@ -97,22 +116,15 @@ class Parser(Module):
                 )]
         self.sync += If(self.arm, Case(state, seq_actions))
 
-        self.cur_frame = cur_frame = Signal(4)
-        repetitions = Signal(8)
-        interrupt = Signal(4)
-        self.interrupt = interrupt
-        save_interrupt = Signal(4)
-
-        line_ready = Signal() # all fields read
         self.comb += line_ready.eq((state >= states["DT"]) &
                 (state - states["DT"] == lp.header.length))
         self.sync += [
             If(line_ready,
                 self.line_out.stb.eq(1),
                 length.eq(length - 1),
-                If(interrupt != save_interrupt,
-                    read.adr.eq(interrupt),
-                    save_interrupt.eq(interrupt),
+                If(self.interrupt != save_interrupt,
+                    read.adr.eq(self.interrupt),
+                    save_interrupt.eq(self.interrupt),
                     # lp.trigger.eq(1), # no:
                     # use pads.trigger or line.trigger
                     state.eq(states["WAIT0"]),
@@ -277,10 +289,8 @@ class TB(Module):
         #    self.dac.parser.interrupt = 0
         if (selfp.dac.out.line_in.ack and
                 selfp.dac.out.line_in.stb):
-            print("cycle {} frame {} line {} data {}".format(
+            print("cycle {} data {}".format(
                 selfp.simulator.cycle_counter,
-                selfp.dac.parser.cur_frame,
-                selfp.dac.parser.length,
                 selfp.dac.out.data))
 
 
