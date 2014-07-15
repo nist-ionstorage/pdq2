@@ -64,9 +64,8 @@ TIMESPEC "ts_grp_clk50" = PERIOD "grp_clk50" 20 ns HIGH 50%;
                     )
             self.specials += Instance("BUFG", i_I=dcm_clk2x, o_O=clk_p)
             self.specials += Instance("BUFG", i_I=dcm_clk2x180, o_O=clk_n)
-            self.specials += Instance("FD", p_INIT=1, i_D=~dcm_locked |
-                    rst, i_C=self.cd_sys.clk,
-                    o_Q=self.cd_sys.rst)
+            self.specials += Instance("FD", p_INIT=1, i_D=~dcm_locked | rst,
+                    i_C=self.cd_sys.clk, o_Q=self.cd_sys.rst)
 
         dacs = []
         for i, mem in enumerate((1<<13, 1<<13, 1<<12)):
@@ -85,9 +84,9 @@ TIMESPEC "ts_grp_clk50" = PERIOD "grp_clk50" 20 ns HIGH 50%;
                         i_C0=clk_p, i_C1=clk_n, i_CE=~dac.out.silence,
                         i_D0=1, i_D1=0, i_R=0, i_S=0, o_Q=pads.clk_n)
                 dclk = Signal()
-                self.specials += Instance("FDDRCPE",
+                self.specials += Instance("ODDR2",
                         i_C0=clk_p, i_C1=clk_n, i_CE=~dac.out.silence,
-                        i_D0=0, i_D1=1, i_CLR=0, i_PRE=0, o_Q=dclk)
+                        i_D0=0, i_D1=1, i_R=0, i_S=0, o_Q=dclk)
                 self.specials += Instance("OBUFDS",
                         i_I=dclk,
                         o_O=pads.data_clk_p, o_OB=pads.data_clk_n)
@@ -155,7 +154,7 @@ def main():
     p = pdq.Pdq()
     mem = p.cmd("RESET_EN")
     mem += p.escape(p.multi_frame([(t, v)], channel=1, order=4,
-            aux=t<.5e-6, repeat=0, next=255, wait_last=True, time_shift=0))
+            aux=t<.5e-6, trigger=True, time_shift=0))
     mem += p.cmd("ARM_EN")
     mem += p.cmd("TRIGGER_EN")
     mem += p.cmd("TRIGGER_DIS")

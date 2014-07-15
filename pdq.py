@@ -125,8 +125,7 @@ class Pdq(object):
     def write_data(self, *segments):
         return self.write(*(self.escape(seg) for seg in segments))
 
-    @staticmethod
-    def interpolate(times, voltages, order):
+    def interpolate(self, times, voltages, order, shift=0):
         """
         calculate b-spline interpolation derivatives for voltage data
         according to interpolation mode
@@ -136,70 +135,68 @@ class Pdq(object):
         the last voltages/derivatives (irrelevant since the section ends
         here)
         """
-        derivatives = [voltages[:-1]]
-        if order > 1:
-            spline = interpolate.splrep(times, voltages, k=order-1)
-            derivatives += [interpolate.splev(times[:-1], spline, der=i)
-                    for i in range(1, order)]
-        return np.diff(times), derivatives
+        times = times*(self.freq/(1<<shift))
+        spline = interpolate.splrep(times, voltages, k=order-1)
+        times = np.rint(times)
+        derivatives = [interpolate.splev(times[:-1], spline, der=i)
+                for i in range(order)]
+        # FIXME: clipped intervals cumulatively skew
+        # subsequent ones
+        times = np.clip(np.diff(times), self.min_time, self.max_time)
+        return times, derivatives
 
     def frame(self, times, derivatives, order=4, aux=None,
-            time_shift=0, trigger_first=False, wait_last=True):
+            time_shift=0, trigger=True):
         """
         serialize frame data
         voltages in volts, times in seconds,
         derivatives can be a number in which case the derivatives will
         be the interpolation, else it should be a list of derivatives
         """
-        # FIXME implement DDS mode
         if not isinstance(derivatives, list):
             derivatives = np.clip(derivatives, -self.max_out, self.max_out)
-            times, derivatives = self.interpolate(times, derivatives, order)
-        line_len = {0: 0, 1: 1, 2: 3, 3: 6, 4: 9}[len(derivatives)]
+            times, derivatives = self.interpolate(times, derivatives,
+                    order, time_shift)
+        words = [1, 2, 3, 3]
+        line_len = sum(words[:len(derivatives)]) + 1 # header
         length = len(times)
 
         frame = []
 
-        head = np.zeros((length,), "<u2")
+        head = np.zeros(length, "<u2")
         head[:] |= line_len<<0 # 4
         #head[:] |= 0<<4 # typ # 2
-        head[-1] |= wait_last<<6 # 1
-        head[0] |= trigger_first<<7 # 1
+        head[0] |= trigger<<6 # 1
+        #head[:] |= 0<<4 # silence # 1
         head[:] |= time_shift<<8 # 4
         if aux is not None:
             head[:] |= aux[:length]<<12 # 1
         #head[:] |= reserved<<13 # 3
         frame.append(head)
 
-        dt = np.rint(times*(self.freq/(1<<time_shift))) - 1
-        # FIXME: clipped intervals cumulatively skew
-        # subsequent ones
-        np.clip(dt, self.min_time, self.max_time, out=dt)
-        frame.append(dt.astype("<u2"))
+        frame.append((times - 1).astype("<u2"))
 
-        byts = [2, 4, 6, 6]
-        for i, (v, byt) in enumerate(zip(derivatives, byts)):
-            scale = self.scale*(1 << (8*(byt - 2)))/self.freq**i
+        for i, (v, word) in enumerate(zip(derivatives, words)):
+            scale = self.scale*(1 << (16*(word - 1)))
             v = np.rint(scale*v).astype("<i8")
             # np.clip(v, -self.max_val, self.max_val, out=v)
-            if byt == 6: # no i6 type
+            if word == 3: # no i6 type
                 frame.append(v.astype("<i4"))
-                frame.append((v >> 32).astype("<i%i" % (byt - 4)))
+                frame.append((v >> 32).astype("<i%i" % (word*2 - 4)))
             else:
-                frame.append(v.astype("<i%i" % byt))
+                frame.append(v.astype("<i%i" % (word*2)))
 
         frame = np.rec.fromarrays(frame) # interleave
         data_length = len(bytes(frame.data))
         logger.debug("frame %s dtype %s shape %s length %s",
                 frame, frame.dtype, frame.shape, data_length)
-        bpl = 2*(2 + line_len)
-        assert data_length == bpl*length, (data_length, bpl, length,
-                frame.shape)
+        assert data_length == 2*(1 + line_len)*length, (data_length, length,
+                line_len, frame.shape)
         return frame
 
     @staticmethod
-    def add_frame_header(frame, repeat, next):
-        head = struct.pack("<BBH", next, repeat, frame.shape[0])
+    def add_frame_header(frame):
+        head = struct.pack("<H", frame.shape[0])
         logger.debug("frame header %r", head)
         return head + bytes(frame.data)
 
@@ -221,16 +218,14 @@ class Pdq(object):
         logger.debug("mem header %r", head)
         return head + chunk
 
-    def multi_frame(self, times_voltages, channel, repeat=0,
-            next=None, **kwargs):
+    def multi_frame(self, times_voltages, channel, **kwargs):
         frames = []
         for i, (t, v) in enumerate(times_voltages):
-            n = i if next is None else next
             if t is None:
                 frame = b""
             else:
                 frame = self.frame(t, v, **kwargs)
-            frames.append(self.add_frame_header(frame, repeat, n))
+            frames.append(self.add_frame_header(frame))
         data = self.combine_frames(frames)
         board, dac = divmod(channel, self.num_dacs)
         data = self.add_mem_header(board, dac, 0, data)
