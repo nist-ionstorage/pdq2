@@ -58,8 +58,7 @@ data_layout = [("data", 8)]
 
 class Ft245r_rx(Module):
     def __init__(self, pads, clk=10.):
-        self.data_out = Source(data_layout)
-        do = self.data_out
+        self.source = do = Source(data_layout)
 
         self.busy = Signal()
         self.comb += self.busy.eq(~do.stb | do.ack)

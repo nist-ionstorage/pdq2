@@ -5,7 +5,6 @@ from migen.flow.actor import Source, Sink
 from migen.flow.transactions import Token
 from migen.actorlib.sim import SimActor
 from migen.actorlib.structuring import Cast, Pack, pack_layout
-from migen.flow.network import DataFlowGraph, CompositeActor
 
 from escape import Unescaper
 from ft245r import data_layout, SimFt245r_rx, Ft245r_rx
@@ -13,7 +12,7 @@ from ft245r import data_layout, SimFt245r_rx, Ft245r_rx
 
 class SimReader(SimActor):
     def __init__(self, data):
-        self.data_out = Source(data_layout)
+        self.source = Source(data_layout)
         SimActor.__init__(self, self.data_gen(data))
 
     def data_gen(self, data):
@@ -25,20 +24,18 @@ mem_layout = [("data", 16)]
 
 
 class MemWriter(Module):
-    def __init__(self, pads, dacs):
-        self.data_in = Sink(mem_layout)
-        self.busy = Signal()
-        self.comb += self.busy.eq(~self.data_in.ack | self.data_in.stb)
+    def __init__(self, adr, dacs):
+        self.sink = Sink(mem_layout)
         mems = [dac.parser.mem.get_port(write_capable=True) for dac in dacs]
         self.specials += mems
 
         dev_adr = Signal(16)
-        board_adr = Signal(flen(pads.adr))
+        board_adr = Signal(flen(adr))
         self.comb += board_adr.eq(dev_adr)
         dac_adr = Signal(max=len(dacs))
         self.comb += dac_adr.eq(dev_adr[8:])
         listen = Signal()
-        self.comb += listen.eq(board_adr == ~pads.adr) # active low
+        self.comb += listen.eq(board_adr == adr)
         data_len = Signal(16)
         mem_adr = Signal(16)
         self.comb += [mem.adr.eq(mem_adr) for mem in mems]
@@ -50,11 +47,11 @@ class MemWriter(Module):
         states = dict((v, i) for i, v in enumerate(states))
         state = Signal(max=len(states))
  
-        self.comb += self.data_in.ack.eq(1) # can always accept
-        data = self.data_in.payload.data
+        self.comb += self.sink.ack.eq(1) # can always accept
+        data = self.sink.payload.data
         self.comb += mem_dat.eq(data) # gated by we
         self.comb += we.eq(listen & (state == states["DATA"])
-                & self.data_in.stb)
+                & self.sink.stb)
 
         seq = [("DEV_ADR", dev_adr), ("MEM_ADR", mem_adr),
                 ("DATA_LEN", data_len), ("DATA", None)]
@@ -68,7 +65,7 @@ class MemWriter(Module):
                     If(data_len <= 1,
                         state.eq(states["DEV_ADR"]),
                     )]
-        self.sync += If(self.data_in.stb & self.data_in.ack,
+        self.sync += If(self.sink.stb & self.sink.ack,
                 Case(state, actions))
 
 
@@ -78,23 +75,27 @@ class Ctrl(Module):
         self.trigger = Signal()
         self.arm = Signal()
 
-        self.command_in = Sink(data_layout)
-        self.busy = Signal()
-        self.comb += self.busy.eq(~self.command_in.ack | self.command_in.stb)
-        
+        self.sink = Sink(data_layout)
+
         self.comb += pads.reset.eq(self.reset)
+
+        # two stage synchronizer for inputs
+        i0 = Signal(flen(pads.interrupt))
+        t0 = Signal()
+
+        self.sync += i0.eq(pads.interrupt), t0.eq(pads.trigger)
 
         for dac in dacs:
             self.sync += [
-                    dac.parser.interrupt.eq(pads.interrupt),
-                    dac.out.trigger.eq(pads.trigger | self.trigger),
+                    dac.parser.interrupt.eq(i0),
+                    dac.out.trigger.eq(t0 | self.trigger),
                     dac.parser.arm.eq(self.arm),
                     ]
 
         self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)
-        #self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
-        self.comb += pads.go2_out.eq(Cat(*(~dac.out.busy for dac in
-            dacs)) != 0)
+        self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
+        #self.comb += pads.go2_out.eq(Cat(*(~dac.out.busy for dac in
+        #    dacs)) != 0)
 
         commands = {
                 "RESET_EN":    (0x00, [self.reset.eq(1)]),
@@ -104,27 +105,29 @@ class Ctrl(Module):
                 "ARM_EN":      (0x04, [self.arm.eq(1)]),
                 "ARM_DIS":     (0x05, [self.arm.eq(0)]),
                 }
-        self.sync += If(self.command_in.stb, Case(self.command_in.payload.data,
+        self.sync += If(self.sink.stb, Case(self.sink.payload.data,
             dict((code, act) for name, (code, act) in commands.items())))
-        self.comb += self.command_in.ack.eq(1) # can alway accept
+        self.comb += self.sink.ack.eq(1) # can alway accept
 
 
 class Comm(Module):
     def __init__(self, pads, dacs, mem=None):
-        g = DataFlowGraph()
         if mem is not None:
             #reader = SimReader(mem)
-            self.submodules.simin = SimFt245r_rx(pads, mem)
+            simin = SimFt245r_rx(pads, mem)
+            self.submodules += simin
         reader = Ft245r_rx(pads)
         unescaper = Unescaper(data_layout, 0xaa)
         pack = Pack(data_layout, 2)
         cast = Cast(pack_layout(data_layout, 2), mem_layout)
-        memwriter = MemWriter(pads, dacs)
+        memwriter = MemWriter(~pads.adr, dacs) # adr is active low
         self.ctrl = ctrl = Ctrl(pads, dacs)
-        #g.add_connection(reader, pack) # no escaping
-        g.add_connection(reader, unescaper)
-        g.add_connection(unescaper, pack, "oa")
-        g.add_connection(pack, cast)
-        g.add_connection(cast, memwriter)
-        g.add_connection(unescaper, ctrl, "ob")
-        self.submodules.graph = CompositeActor(g)
+        self.submodules += reader, unescaper, pack, cast, memwriter, ctrl
+
+        self.comb += [
+                unescaper.sink.connect(reader.source),
+                pack.sink.connect(unescaper.source_a),
+                cast.sink.connect(pack.source),
+                memwriter.sink.connect(cast.source),
+                ctrl.sink.connect(unescaper.source_b),
+        ]

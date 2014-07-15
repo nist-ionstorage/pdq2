@@ -11,22 +11,21 @@ from migen.flow.network import DataFlowGraph, CompositeActor
 class Unescaper(Module):
     # something rare, 0xff and 0x00 are too common, 0xaa is 0b10101010
     def __init__(self, layout, escape=0xaa):
-        self.i = i = Sink(layout)
-        self.oa, self.ob = oa, ob = Source(layout), Source(layout)
+        self.sink = i = Sink(layout)
+        self.source_a, self.source_b = oa, ob = Source(layout), Source(layout)
         self.comb += oa.payload.eq(i.payload), ob.payload.eq(i.payload)
 
         self.busy = Signal()
         self.comb += self.busy.eq(0)
 
         is_escape = Signal()
-        self.comb += is_escape.eq(i.stb & (i.payload.raw_bits() == escape))
 
         was_escape = Signal()
-        self.sync += If(i.ack & i.stb,
-                was_escape.eq(is_escape & ~was_escape))
+        self.sync += If(i.ack & i.stb, was_escape.eq(is_escape & ~was_escape))
 
         ctrl = Cat(i.ack, oa.stb, ob.stb)
         self.comb += [
+                is_escape.eq(i.stb & (i.payload.raw_bits() == escape)),
                 If(is_escape == was_escape, # 00 or 11: data, oa
                     ctrl.eq(Cat(oa.ack, i.stb, 0)),
                 ).Elif(is_escape, # 01, swallow
@@ -72,8 +71,8 @@ class EscapeTB(Module):
         self.bsink = SimSink("b")
         g = DataFlowGraph()
         g.add_connection(self.source, unescaper)
-        g.add_connection(unescaper, self.asink, "oa")
-        g.add_connection(unescaper, self.bsink, "ob")
+        g.add_connection(unescaper, self.asink, "source_a")
+        g.add_connection(unescaper, self.bsink, "source_b")
         self.submodules.comp = CompositeActor(g)
 
     def do_simulation(self, selfp):
