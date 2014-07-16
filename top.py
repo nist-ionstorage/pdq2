@@ -154,7 +154,7 @@ def main():
     p = pdq.Pdq()
     mem = p.cmd("RESET_EN")
     mem += p.escape(p.multi_frame([(t, v)], channel=1, order=4,
-            aux=t<.5e-6, trigger=True, time_shift=0))
+            aux=t<.5e-6, trigger=True))
     mem += p.cmd("ARM_EN")
     mem += p.cmd("TRIGGER_EN")
     mem += p.cmd("TRIGGER_DIS")
