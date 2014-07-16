@@ -136,6 +136,7 @@ class Pdq(object):
         here)
         """
         times = times*(self.freq/(1<<shift))
+        voltages = np.clip(voltages, -self.max_val, self.max_val)*self.scale
         spline = interpolate.splrep(times, voltages, k=order-1)
         times = np.rint(times)
         derivatives = [interpolate.splev(times[:-1], spline, der=i)
@@ -146,7 +147,7 @@ class Pdq(object):
         return times, derivatives
 
     def frame(self, times, derivatives, order=4, aux=None,
-            time_shift=0, trigger=True, end=True):
+            time_shift=0, wait=True, end=True):
         """
         serialize frame data
         voltages in volts, times in seconds,
@@ -158,7 +159,7 @@ class Pdq(object):
             times, derivatives = self.interpolate(times, derivatives,
                     order, time_shift)
         words = [1, 2, 3, 3]
-        line_len = sum(words[:len(derivatives)]) + 1 # header
+        line_len = sum(words[:len(derivatives)]) + 1 # dt
         length = len(times)
 
         frame = []
@@ -166,7 +167,7 @@ class Pdq(object):
         head = np.zeros(length, "<u2")
         head[:] |= line_len<<0 # 4
         head[:] |= 0<<4 # typ # 2
-        head[0] |= trigger<<6 # 1
+        head[0] |= wait<<6 # 1
         head[:] |= 0<<7 # silence # 1
         if aux is not None:
             head[:] |= aux[:length]<<8 # 1
@@ -175,13 +176,12 @@ class Pdq(object):
         head[:] |= 0<<14 # reserved 2
         frame.append(head)
 
-        frame.append((times - 1).astype("<u2"))
+        frame.append(times.astype("<u2"))
 
         for i, (v, word) in enumerate(zip(derivatives, words)):
-            scale = self.scale*(1 << (16*(word - 1)))
+            scale = 1 << (16*(word - 1))
             v = np.rint(scale*v).astype("<i8")
-            # np.clip(v, -self.max_val, self.max_val, out=v)
-            if word == 3: # no i6 type
+            if word == 3: # no i6 dtype
                 frame.append(v.astype("<i4"))
                 frame.append((v >> 32).astype("<i%i" % (word*2 - 4)))
             else:

@@ -13,7 +13,7 @@ line_layout = [
         ("header", [
             ("length", 4), # length in shorts
             ("typ", 2), # volt, dds
-            ("trigger", 1), # wait for trigger before
+            ("wait", 1), # wait for trigger before
             ("silence", 1), # shut down clock during
             ("aux", 1), # aux channel
             ("shift", 4), # time shift
@@ -108,8 +108,7 @@ class DacOut(Module):
 
         line = Record(line_layout)
         dt_dec = Signal(16)
-        save_dt_dec = Signal(16)
-        lp_dt_dec = Signal(16)
+        dt = Signal(16)
         adv = Signal()
         tic = Signal()
         toc = Signal()
@@ -118,12 +117,11 @@ class DacOut(Module):
         lp = self.line_in.payload
 
         self.comb += [
-                adv.eq(self.trigger | (self.line_in.stb & ~lp.header.trigger)),
-                tic.eq(dt_dec == 0), # counted 1<<shift cycles
-                toc.eq(line.dt == 0), # counted dt*(1<<shift) cycles
+                adv.eq(self.trigger | (self.line_in.stb & ~lp.header.wait)),
+                tic.eq(dt_dec == (1<<lp.header.shift) - 1), # counted 1<<shift cycles
+                toc.eq(dt == line.dt), # counted dt*(1<<shift) cycles
                 self.line_in.ack.eq(tic & toc & adv),
                 stb.eq(self.line_in.stb & self.line_in.ack),
-                lp_dt_dec.eq((1<<lp.header.shift) - 1),
         ]
 
         subs = [
@@ -138,11 +136,11 @@ class DacOut(Module):
                 self.data.eq(optree("+", [sub.data for sub in subs])),
 
                 If(~tic,
-                    dt_dec.eq(dt_dec - 1),
+                    dt_dec.eq(dt_dec + 1),
                 ),
                 If(tic & ~toc,
-                    dt_dec.eq(save_dt_dec),
-                    line.dt.eq(line.dt - 1),
+                    dt_dec.eq(0),
+                    dt.eq(dt + 1),
                 ),
                 If(stb,
                     line.header.eq(lp.header),
@@ -150,8 +148,8 @@ class DacOut(Module):
                     self.silence.eq(lp.header.silence),
 
                     line.dt.eq(lp.dt),
-                    dt_dec.eq(lp_dt_dec),
-                    save_dt_dec.eq(lp_dt_dec),
+                    dt_dec.eq(0),
+                    dt.eq(1),
                 ),
         ]
 
@@ -265,8 +263,7 @@ def main():
     t = np.arange(0, 6) * .22e-6
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
-    frame = p.frame(t, v, order=4, trigger=True).data
-    mem = p.combine_frames([frame])
+    mem = p.combine_frames([p.frame(t, v).data])
     mem = list(np.fromstring(mem, "<u2"))
     tb = TB(mem)
     run_simulation(tb, ncycles=300, vcd_name="dac.vcd")
