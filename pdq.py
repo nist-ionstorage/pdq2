@@ -201,7 +201,7 @@ class Pdq(object):
         chunk = bytes(mems.astype("<u2").data) # jump table
         logger.debug("mem len %i, %r", len(chunk), chunk)
         for frame in frames:
-            chunk += frame
+            chunk += bytes(frame)
         assert len(chunk) <= self.max_data
         return chunk
 
@@ -219,8 +219,8 @@ class Pdq(object):
             if t is None:
                 frame = b""
             else:
-                frame = self.frame(t, v, **kwargs)
-            frames.append(frame.data)
+                frame = self.frame(t, v, **kwargs).data
+            frames.append(frame)
         data = self.combine_frames(frames)
         board, dac = divmod(channel, self.num_dacs)
         data = self.add_mem_header(board, dac, 0, data)
@@ -287,15 +287,12 @@ def main():
     channels = (args.channel is None) and range(9) or [args.channel]
     for channel in channels:
         if args.frame is None:
-            v = [.1*frame + channel + voltages for frame in range(8)]
-            t = [times] * len(v)
-            data.append(dev.multi_frame(zip(t, v), channel=channel,
-                    order=args.mode))
+            tv = [(.1*frame + channel + voltages, times)
+                    for frame in range(8)]
         else:
             tv = [(None, None)] * 8
             tv[args.frame] = times, voltages
-            data.append(dev.multi_frame(tv, channel=channel,
-                    order=args.mode))
+        data.append(dev.multi_frame(tv, channel=channel, order=args.mode))
     dev.write_cmd("RESET_EN")
     dev.write_data(*data)
     if not args.disarm:

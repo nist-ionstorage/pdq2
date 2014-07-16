@@ -208,7 +208,7 @@ class Dds(Module):
 
 
 class Dac(Module):
-    def __init__(self, fifo=16, **kwargs):
+    def __init__(self, fifo=0, **kwargs):
         self.submodules.parser = Parser(**kwargs)
         self.submodules.out = DacOut()
         if fifo:

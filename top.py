@@ -150,13 +150,14 @@ def main():
 
     t = np.arange(5)*.12e-6
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
+
     p = pdq.Pdq()
     mem = p.cmd("RESET_EN")
-    mem += p.escape(p.multi_frame([(t, v)], channel=1, order=4,
-            aux=t<.5e-6))
-    mem += p.cmd("ARM_EN") 
+    mem += p.escape(p.multi_frame([(t, v)], channel=1))
+    mem += p.cmd("ARM_EN")
     mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
     mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
+
     tb = TB(list(mem))
     n = 2000
     run_simulation(tb, vcd_name="top.vcd", ncycles=n)
