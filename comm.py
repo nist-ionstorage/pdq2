@@ -5,6 +5,7 @@ from migen.flow.actor import Source, Sink
 from migen.flow.transactions import Token
 from migen.actorlib.sim import SimActor
 from migen.actorlib.structuring import Cast, Pack, pack_layout
+from migen.genlib.fsm import FSM, NextState
 
 from escape import Unescaper
 from ft245r import data_layout, SimFt245r_rx, Ft245r_rx
@@ -26,47 +27,70 @@ mem_layout = [("data", 16)]
 class MemWriter(Module):
     def __init__(self, adr, dacs):
         self.sink = Sink(mem_layout)
+
         mems = [dac.parser.mem.get_port(write_capable=True) for dac in dacs]
         self.specials += mems
 
-        dev_adr = Signal(16)
-        board_adr = Signal(flen(adr))
-        self.comb += board_adr.eq(dev_adr)
-        dac_adr = Signal(max=len(dacs))
-        self.comb += dac_adr.eq(dev_adr[8:])
-        listen = Signal()
-        self.comb += listen.eq(board_adr == adr)
-        data_len = Signal(16)
+        dac = Signal(max=len(dacs))
         mem_adr = Signal(16)
-        self.comb += [mem.adr.eq(mem_adr) for mem in mems]
-        mem_dat = Signal(16)
-        self.comb += [mem.dat_w.eq(mem_dat) for mem in mems]
-        we = Array(mem.we for mem in mems)[dac_adr]
+        mem_end = Signal(16)
+        listen = Signal()
+        we = Signal()
+        pd = self.sink.payload.data
 
-        states = "DEV_ADR MEM_ADR DATA_LEN DATA".split()
-        states = dict((v, i) for i, v in enumerate(states))
-        state = Signal(max=len(states))
- 
-        self.comb += self.sink.ack.eq(1) # can always accept
-        data = self.sink.payload.data
-        self.comb += mem_dat.eq(data) # gated by we
-        self.comb += we.eq(listen & (state == states["DATA"])
-                & self.sink.stb)
+        self.sink.ack.reset = 1
 
-        seq = [("DEV_ADR", dev_adr), ("MEM_ADR", mem_adr),
-                ("DATA_LEN", data_len), ("DATA", None)]
-        actions = {}
-        for i, (st, reg) in enumerate(seq[:-1]):
-            actions[states[st]] = [reg.eq(data),
-                    state.eq(states[seq[i+1][0]])]
-        actions[states["DATA"]] = [
-                    mem_adr.eq(mem_adr + 1),
-                    data_len.eq(data_len - 1),
-                    If(data_len <= 1,
-                        state.eq(states["DEV_ADR"]),
-                    )]
-        self.sync += If(self.sink.stb & self.sink.ack,
-                Case(state, actions))
+        self.comb += [
+                Array(mem.we for mem in mems)[dac].eq(we)
+        ]
+        for mem in mems:
+            self.comb += [
+                    mem.adr.eq(mem_adr),
+                    mem.dat_w.eq(pd)
+            ]
+
+        self.submodules.fsm = fsm = FSM(reset_state="DEV_ADR")
+        fsm.act("DEV_ADR",
+                If(self.sink.stb,
+                    NextState("MEM_ADR")
+                )
+        )
+        fsm.act("MEM_ADR",
+                If(self.sink.stb,
+                    NextState("MEM_END")
+                )
+        )
+        fsm.act("MEM_END",
+                If(self.sink.stb,
+                    NextState("DATA")
+                )
+        )
+        fsm.act("DATA",
+                If(self.sink.stb,
+                    we.eq(listen),
+                    If(mem_adr == mem_end,
+                        NextState("DEV_ADR")
+                    )
+                )
+        )
+
+        self.sync += [
+                If(fsm.ongoing("DEV_ADR"),
+                    listen.eq(pd[:flen(adr)] == adr),
+                    dac.eq(pd[8:])
+                ),
+                If(fsm.ongoing("MEM_ADR"),
+                    mem_adr.eq(pd)
+                ),
+                If(fsm.ongoing("MEM_END"),
+                    mem_end.eq(pd)
+                ),
+                If(fsm.ongoing("DATA"),
+                    If(self.sink.stb,
+                        mem_adr.eq(mem_adr + 1),
+                    )
+                )
+        ]
 
 
 class Ctrl(Module):
@@ -77,6 +101,7 @@ class Ctrl(Module):
 
         self.sink = Sink(data_layout)
 
+        self.sink.ack.reset = 1
         self.comb += pads.reset.eq(self.reset)
 
         # two stage synchronizer for inputs
@@ -107,7 +132,6 @@ class Ctrl(Module):
                 }
         self.sync += If(self.sink.stb, Case(self.sink.payload.data,
             dict((code, act) for name, (code, act) in commands.items())))
-        self.comb += self.sink.ack.eq(1) # can alway accept
 
 
 class Comm(Module):
@@ -117,7 +141,7 @@ class Comm(Module):
             simin = SimFt245r_rx(pads, mem)
             self.submodules += simin
         reader = Ft245r_rx(pads)
-        unescaper = Unescaper(data_layout, 0xaa)
+        unescaper = Unescaper(data_layout, 0xa5)
         pack = Pack(data_layout, 2)
         cast = Cast(pack_layout(data_layout, 2), mem_layout)
         memwriter = MemWriter(~pads.adr, dacs) # adr is active low

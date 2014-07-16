@@ -13,11 +13,12 @@ line_layout = [
         ("header", [
             ("length", 4), # length in shorts
             ("typ", 2), # volt, dds
-            ("wait", 1), # wait for trigger before this line
-            ("silence", 1), # shut down clock
-            ("shift", 4), # time shift
+            ("trigger", 1), # wait for trigger before
+            ("silence", 1), # shut down clock during
             ("aux", 1), # aux channel
-            ("reserved3", 3),
+            ("shift", 4), # time shift
+            ("end", 1), # return to jump table afterwards
+            ("reserved", 2),
         ]),
         ("dt", 16),
         ("data", 14*16),
@@ -43,7 +44,7 @@ class Parser(Module):
         self.comb += lp.raw_bits().eq(raw)
         lpa = Array([raw[i:i + flen(read.dat_r)] for i in
             range(0, flen(raw), flen(read.dat_r))])
-        line_read = Signal(max=len(lpa))
+        data_read = Signal(max=len(lpa))
 
         self.submodules.fsm = fsm = FSM(reset_state="IRQ")
         fsm.act("IRQ",
@@ -55,16 +56,16 @@ class Parser(Module):
         fsm.act("FRAME",
                 read.adr.eq(read.dat_r),
                 inc.eq(1),
-                NextState("LENGTH"),
+                NextState("HEADER")
         )
-        fsm.act("LENGTH",
+        fsm.act("HEADER",
                 read.adr.eq(adr),
                 inc.eq(1),
-                NextState("LINE"),
+                NextState("LINE")
         )
         fsm.act("LINE",
                 read.adr.eq(adr),
-                If((line_read != 0) & (line_read == lp.header.length),
+                If(data_read == lp.header.length,
                     NextState("STB")
                 ).Else(
                     inc.eq(1),
@@ -74,31 +75,24 @@ class Parser(Module):
                 read.adr.eq(adr),
                 self.line_out.stb.eq(1),
                 If(self.line_out.ack,
-                    If(frame_read == frame_length,
+                    inc.eq(1),
+                    If(lp.header.end,
                         NextState("IRQ")
                     ).Else(
-                        inc.eq(1),
-                        NextState("LINE")
+                        NextState("HEADER")
                     )
                 )
         )
 
         self.sync += [
                 adr.eq(read.adr + inc),
-                If(fsm.ongoing("LENGTH"),
-                    frame_length.eq(read.dat_r),
-                    frame_read.eq(0),
-                ),
-                If(fsm.before_entering("LINE"),
-                    raw.eq(0),
-                    line_read.eq(0),
+                If(fsm.ongoing("HEADER"),
+                    raw.eq(read.dat_r),
+                    data_read.eq(1),
                 ),
                 If(fsm.ongoing("LINE"),
-                    lpa[line_read].eq(read.dat_r),
-                    line_read.eq(line_read + 1),
-                ),
-                If(fsm.before_leaving("LINE"),
-                    frame_read.eq(frame_read + 1),
+                    lpa[data_read].eq(read.dat_r),
+                    data_read.eq(data_read + 1),
                 ),
         ]
 
@@ -124,7 +118,7 @@ class DacOut(Module):
         lp = self.line_in.payload
 
         self.comb += [
-                adv.eq(self.trigger | (self.line_in.stb & ~lp.header.wait)),
+                adv.eq(self.trigger | (self.line_in.stb & ~lp.header.trigger)),
                 tic.eq(dt_dec == 0), # counted 1<<shift cycles
                 toc.eq(line.dt == 0), # counted dt*(1<<shift) cycles
                 self.line_in.ack.eq(tic & toc & adv),
@@ -271,8 +265,7 @@ def main():
     t = np.arange(0, 6) * .22e-6
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
-    frame = p.frame(t, v, order=4, trigger=True)
-    frame = p.add_frame_header(frame)
+    frame = p.frame(t, v, order=4, trigger=True).data
     mem = p.combine_frames([frame])
     mem = list(np.fromstring(mem, "<u2"))
     tb = TB(mem)

@@ -136,7 +136,6 @@ class TB(Module):
 
     def do_simulation(self, selfp):
         self.outputs.append(selfp.dac1.out.data)
-
     do_simulation.passive = True
 
 
@@ -154,10 +153,10 @@ def main():
     p = pdq.Pdq()
     mem = p.cmd("RESET_EN")
     mem += p.escape(p.multi_frame([(t, v)], channel=1, order=4,
-            aux=t<.5e-6, trigger=True))
-    mem += p.cmd("ARM_EN")
-    mem += p.cmd("TRIGGER_EN")
-    mem += p.cmd("TRIGGER_DIS")
+            aux=t<.5e-6))
+    mem += p.cmd("ARM_EN") 
+    mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
+    mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
     tb = TB(list(mem))
     n = 2000
     run_simulation(tb, vcd_name="top.vcd", ncycles=n)
