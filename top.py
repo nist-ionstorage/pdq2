@@ -153,7 +153,7 @@ def main():
 
     p = pdq.Pdq()
     mem = p.cmd("RESET_EN")
-    mem += p.escape(p.multi_frame([(t, v)], channel=1))
+    mem += p.escape(p.multi_frame([(t, v)] + [None] * 7, channel=1))
     mem += p.cmd("ARM_EN")
     mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
     mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")

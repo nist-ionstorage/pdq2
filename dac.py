@@ -56,7 +56,11 @@ class Parser(Module):
         fsm.act("FRAME",
                 read.adr.eq(read.dat_r),
                 inc.eq(1),
-                NextState("HEADER")
+                If(read.dat_r,
+                    NextState("HEADER")
+                ).Else(
+                    NextState("IRQ")
+                )
         )
         fsm.act("HEADER",
                 read.adr.eq(adr),

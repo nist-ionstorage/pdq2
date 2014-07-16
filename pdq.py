@@ -196,34 +196,41 @@ class Pdq(object):
         return frame
 
     def combine_frames(self, frames):
-        lens = [len(frame)//2 for frame in frames[:-1]] # 16 bits
-        mems = np.cumsum([len(frames)] + lens)
-        chunk = bytes(mems.astype("<u2").data) # jump table
+        table = []
+        adr = len(frames)
+        for frame in frames:
+            if frame:
+                table.append(adr)
+                adr += len(frame)//2
+            else:
+                table.append(0)
+        assert adr <= self.max_data, adr
+        chunk = bytes(np.array(table).astype("<u2").data)
         logger.debug("mem len %i, %r", len(chunk), chunk)
         for frame in frames:
-            chunk += bytes(frame)
-        assert len(chunk) <= self.max_data
+            if frame:
+                chunk += bytes(frame)
         return chunk
 
-    def add_mem_header(self, board, dac, adr, chunk):
-        length = len(chunk)//2 # 16 bit memory
+    def add_mem_header(self, board, dac, chunk, adr=0):
         assert dac in range(self.num_dacs)
         assert board in range(self.num_boards)
-        head = struct.pack("<BBHH", board, dac, adr, adr + length)
+        head = struct.pack("<BBHH", board, dac, adr, adr + len(chunk)//2)
         logger.debug("mem header %r", head)
         return head + chunk
 
     def multi_frame(self, times_voltages, channel, **kwargs):
         frames = []
-        for i, (t, v) in enumerate(times_voltages):
-            if t is None:
-                frame = b""
+        for i, tv in enumerate(times_voltages):
+            if tv is None:
+                frame = None
             else:
+                t, v = tv
                 frame = self.frame(t, v, **kwargs).data
             frames.append(frame)
         data = self.combine_frames(frames)
         board, dac = divmod(channel, self.num_dacs)
-        data = self.add_mem_header(board, dac, 0, data)
+        data = self.add_mem_header(board, dac, data)
         return data
 
 
@@ -290,7 +297,7 @@ def main():
             tv = [(.1*frame + channel + voltages, times)
                     for frame in range(8)]
         else:
-            tv = [(None, None)] * 8
+            tv = [None] * 8
             tv[args.frame] = times, voltages
         data.append(dev.multi_frame(tv, channel=channel, order=args.mode))
     dev.write_cmd("RESET_EN")
