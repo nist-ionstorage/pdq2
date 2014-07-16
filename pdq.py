@@ -84,8 +84,8 @@ class Pdq(object):
     max_time = 1<<16 # unsigned 16 bit timer
     num_boards = 3
     num_dacs = 3
-    max_data = 8*(1<<10) # 6144 data buffer size per channel
-    escape_char = b"\xaa"
+    max_data = 4*(1<<10) # 8kx16 8kx16 4kx16
+    escape_char = b"\xa5"
 
     commands = {
             "RESET_EN":    b"\x00",
@@ -146,7 +146,7 @@ class Pdq(object):
         return times, derivatives
 
     def frame(self, times, derivatives, order=4, aux=None,
-            time_shift=0, trigger=True):
+            time_shift=0, trigger=True, end=True):
         """
         serialize frame data
         voltages in volts, times in seconds,
@@ -165,13 +165,14 @@ class Pdq(object):
 
         head = np.zeros(length, "<u2")
         head[:] |= line_len<<0 # 4
-        #head[:] |= 0<<4 # typ # 2
+        head[:] |= 0<<4 # typ # 2
         head[0] |= trigger<<6 # 1
-        #head[:] |= 0<<4 # silence # 1
-        head[:] |= time_shift<<8 # 4
+        head[:] |= 0<<7 # silence # 1
         if aux is not None:
-            head[:] |= aux[:length]<<12 # 1
-        #head[:] |= reserved<<13 # 3
+            head[:] |= aux[:length]<<8 # 1
+        head[:] |= time_shift<<9 # 4
+        head[-1] |= end<<13 # 1
+        head[:] |= 0<<14 # reserved 2
         frame.append(head)
 
         frame.append((times - 1).astype("<u2"))
@@ -194,12 +195,6 @@ class Pdq(object):
                 line_len, frame.shape)
         return frame
 
-    @staticmethod
-    def add_frame_header(frame):
-        head = struct.pack("<H", frame.shape[0])
-        logger.debug("frame header %r", head)
-        return head + bytes(frame.data)
-
     def combine_frames(self, frames):
         lens = [len(frame)//2 for frame in frames[:-1]] # 16 bits
         mems = np.cumsum([len(frames)] + lens)
@@ -214,7 +209,7 @@ class Pdq(object):
         length = len(chunk)//2 # 16 bit memory
         assert dac in range(self.num_dacs)
         assert board in range(self.num_boards)
-        head = struct.pack("<BBHH", board, dac, adr, length)
+        head = struct.pack("<BBHH", board, dac, adr, adr + length)
         logger.debug("mem header %r", head)
         return head + chunk
 
@@ -225,7 +220,7 @@ class Pdq(object):
                 frame = b""
             else:
                 frame = self.frame(t, v, **kwargs)
-            frames.append(self.add_frame_header(frame))
+            frames.append(frame.data)
         data = self.combine_frames(frames)
         board, dac = divmod(channel, self.num_dacs)
         data = self.add_mem_header(board, dac, 0, data)
@@ -302,8 +297,6 @@ def main():
             data.append(dev.multi_frame(tv, channel=channel,
                     order=args.mode))
     dev.write_cmd("RESET_EN")
-    dev.write_cmd("ARM_DIS")
-    dev.write_cmd("TRIGGER_DIS")
     dev.write_data(*data)
     if not args.disarm:
         dev.write_cmd("ARM_EN")
