@@ -117,26 +117,30 @@ class DacOut(Module):
         tic = Signal()
         toc = Signal()
         stb = Signal()
+        toc0 = Signal()
+        inc = Signal()
 
         lp = self.line_in.payload
 
         self.comb += [
                 adv.eq(self.trigger | (self.line_in.stb & ~lp.header.wait)),
-                tic.eq(dt_dec == (1<<lp.header.shift) - 1), # counted 1<<shift cycles
-                toc.eq(dt == line.dt), # counted dt*(1<<shift) cycles
+                tic.eq(dt_dec == (1<<lp.header.shift) - 1),
+                toc.eq(dt == line.dt),
                 self.line_in.ack.eq(tic & toc & adv),
                 stb.eq(self.line_in.stb & self.line_in.ack),
+                inc.eq(tic & ~(toc & (adv | toc0))),
         ]
 
         subs = [
-            Volt(lp.data, stb & (lp.header.typ == 0), tic & ~toc),
-            Dds(lp.data, stb & (lp.header.typ == 1), tic & ~toc),
+                Volt(lp.data, stb & (lp.header.typ == 0), inc),
+                Dds(lp.data, stb & (lp.header.typ == 1), inc),
         ]
 
         for i, sub in enumerate(subs):
             self.submodules += sub
 
         self.sync += [
+                toc0.eq(toc),
                 self.data.eq(optree("+", [sub.data for sub in subs])),
 
                 If(~tic,
@@ -267,14 +271,14 @@ def main():
     t = np.arange(0, 6) * .22e-6
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
-    mem = p.combine_frames([p.frame(t, v).data])
-    mem = list(np.fromstring(mem, "<u2"))
-    tb = TB(mem)
+    k = 4
+    mem = p.combine_frames([p.frame(t, v, order=k).data])
+    tb = TB(list(np.fromstring(mem, "<u2")))
     run_simulation(tb, ncycles=300, vcd_name="dac.vcd")
 
     plt.plot(t, v, "xk")
-    
-    sp = interpolate.splrep(t, v, k=3)
+
+    sp = interpolate.splrep(t, v, k=k-1)
     tt = np.arange(t[0], t[-1], 1/p.freq)
     vv = interpolate.splev(tt, sp, der=0)
     plt.plot(tt, vv, ",g")
