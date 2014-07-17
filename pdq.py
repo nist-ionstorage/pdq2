@@ -144,6 +144,7 @@ class Pdq(object):
         # FIXME: clipped intervals cumulatively skew
         # subsequent ones
         times = np.clip(np.diff(times), self.min_time, self.max_time)
+        assert np.all(times > 0)
         return times, derivatives
 
     def frame(self, times, derivatives, order=4, aux=None,

@@ -56,10 +56,10 @@ class Parser(Module):
         fsm.act("FRAME",
                 read.adr.eq(read.dat_r),
                 inc.eq(1),
-                If(read.dat_r,
-                    NextState("HEADER")
-                ).Else(
+                If(read.dat_r == 0,
                     NextState("IRQ")
+                ).Else(
+                    NextState("HEADER")
                 )
         )
         fsm.act("HEADER",
@@ -85,6 +85,9 @@ class Parser(Module):
                     ).Else(
                         NextState("HEADER")
                     )
+                ),
+                If(~self.arm,
+                    NextState("IRQ")
                 )
         )
 
@@ -124,11 +127,11 @@ class DacOut(Module):
 
         self.comb += [
                 adv.eq(self.trigger | (self.line_in.stb & ~lp.header.wait)),
-                tic.eq(dt_dec == (1<<lp.header.shift) - 1),
+                tic.eq(dt_dec == 1<<line.header.shift),
                 toc.eq(dt == line.dt),
-                self.line_in.ack.eq(tic & toc & adv),
-                stb.eq(self.line_in.stb & self.line_in.ack),
+                self.line_in.ack.eq(toc & adv),
                 inc.eq(tic & ~(toc & (adv | toc0))),
+                stb.eq(self.line_in.stb & self.line_in.ack),
         ]
 
         subs = [
@@ -146,8 +149,8 @@ class DacOut(Module):
                 If(~tic,
                     dt_dec.eq(dt_dec + 1),
                 ),
-                If(tic & ~toc,
-                    dt_dec.eq(0),
+                If(~toc,
+                    dt_dec.eq(1),
                     dt.eq(dt + 1),
                 ),
                 If(stb,
@@ -156,7 +159,7 @@ class DacOut(Module):
                     self.silence.eq(lp.header.silence),
 
                     line.dt.eq(lp.dt),
-                    dt_dec.eq(0),
+                    dt_dec.eq(1),
                     dt.eq(1),
                 ),
         ]

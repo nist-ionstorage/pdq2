@@ -1,5 +1,7 @@
 # Robert Jordens <jordens@gmail.com> 2013
 
+import random
+
 from migen.fhdl.std import *
 from migen.genlib.record import Record
 from migen.flow.actor import *
@@ -126,7 +128,8 @@ class TB(Module):
             dac = Dac()
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)
-            dac.parser.mem.init = [0] * dac.parser.mem.depth
+            dac.parser.mem.init = [random.randrange(0, 1<<16)
+                    for i in range(dac.parser.mem.depth)]
         self.pads = Record(self.comm_pads)
         self.pads.interrupt.reset = 0
         self.pads.adr.reset = 15
