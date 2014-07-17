@@ -115,6 +115,7 @@ class DacOut(Module):
 
         line = Record(line_layout)
         dt_dec = Signal(16)
+        dt_end = Signal(16)
         dt = Signal(16)
         adv = Signal()
         tic = Signal()
@@ -126,10 +127,12 @@ class DacOut(Module):
         lp = self.line_in.payload
 
         self.comb += [
+                self.aux.eq(line.header.aux),
+                self.silence.eq(line.header.silence),
                 adv.eq(self.trigger | (self.line_in.stb & ~lp.header.wait)),
-                tic.eq(dt_dec == 1<<line.header.shift),
+                tic.eq(dt_dec == dt_end),
                 toc.eq(dt == line.dt),
-                self.line_in.ack.eq(toc & adv),
+                self.line_in.ack.eq(tic & toc & adv),
                 inc.eq(tic & ~(toc & (adv | toc0))),
                 stb.eq(self.line_in.stb & self.line_in.ack),
         ]
@@ -148,20 +151,16 @@ class DacOut(Module):
 
                 If(~tic,
                     dt_dec.eq(dt_dec + 1),
-                ),
-                If(~toc,
-                    dt_dec.eq(1),
+                ).Elif(~toc,
+                    dt_dec.eq(0),
                     dt.eq(dt + 1),
-                ),
-                If(stb,
+                ).Elif(stb,
                     line.header.eq(lp.header),
-                    self.aux.eq(lp.header.aux),
-                    self.silence.eq(lp.header.silence),
-
-                    line.dt.eq(lp.dt),
-                    dt_dec.eq(1),
-                    dt.eq(1),
-                ),
+                    line.dt.eq(lp.dt - 1),
+                    dt_end.eq((1<<line.header.shift) - 1),
+                    dt_dec.eq(0),
+                    dt.eq(0),
+                )
         ]
 
 
