@@ -120,7 +120,7 @@ class DacOut(Module):
         adv = Signal()
         tic = Signal()
         toc = Signal()
-        self.stb = stb = Signal()
+        stb = Signal()
         toc0 = Signal()
         inc = Signal()
 

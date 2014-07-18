@@ -59,11 +59,7 @@ data_layout = [("data", 8)]
 class Ft245r_rx(Module):
     def __init__(self, pads, clk=10.):
         self.source = do = Source(data_layout)
-
         self.busy = Signal()
-        self.comb += self.busy.eq(~do.stb | do.ack)
-
-        self.sync += do.stb.eq(do.stb & ~do.ack)
 
         # t_RDLl_Dv = 50 ns (setup)
         # t_RDLh_Di = 0ns (hold)
@@ -83,12 +79,19 @@ class Ft245r_rx(Module):
 
         reading = Signal()
         # proxy rxfl to slaves, drive rdl
-        self.sync += If(~reading & ~pads.rd_in, pads.rd_out.eq(~pads.rxfl))
-        self.comb += pads.rdl.eq(~pads.rd_out)
-
-        self.sync += timeline(pads.rd_in, [
-                (0, [reading.eq(1)]),
-                (t_latch, [do.stb.eq(1), do.payload.data.eq(pads.data)]),
-                (t_drop, [pads.rd_out.eq(0)]),
-                (t_refill, [reading.eq(0)]),
-            ])
+        self.comb += [
+                pads.rdl.eq(~pads.rd_out),
+                self.busy.eq(~do.stb | do.ack)
+        ]
+        self.sync += [
+                If(~reading & ~pads.rd_in,
+                    pads.rd_out.eq(~pads.rxfl),
+                ),
+                do.stb.eq(do.stb & ~do.ack),
+                timeline(pads.rd_in, [
+                    (0, [reading.eq(1)]),
+                    (t_latch, [do.stb.eq(1), do.payload.data.eq(pads.data)]),
+                    (t_drop, [pads.rd_out.eq(0)]),
+                    (t_refill, [reading.eq(0)]),
+                ])
+        ]

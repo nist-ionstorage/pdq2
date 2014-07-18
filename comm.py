@@ -93,43 +93,72 @@ class MemWriter(Module):
         ]
 
 
+class ResetGen(Module):
+    def __init__(self, n=1<<8):
+        self.trigger = Signal()
+        self.reset = Signal()
+
+        self.clock_domains.cd_no_rst = ClockDomain(reset_less=True)
+        counter = Signal(max=n)
+        run = Signal()
+        self.comb += [
+                self.cd_no_rst.clk.eq(ClockSignal()),
+                run.eq(counter != n - 1)
+        ]
+        self.sync.no_rst += [
+                self.reset.eq(run),
+                If(self.trigger,
+                    counter.eq(0)
+                ).Elif(run,
+                    counter.eq(counter + 1)
+                )
+        ]
+
+
 class Ctrl(Module):
     def __init__(self, pads, dacs):
         self.reset = Signal()
         self.trigger = Signal()
         self.arm = Signal()
-
         self.sink = Sink(data_layout)
 
         self.sink.ack.reset = 1
-        self.comb += pads.reset.eq(self.reset)
+
+        self.submodules.rg = ResetGen()
 
         # two stage synchronizer for inputs
         i0 = Signal(flen(pads.interrupt))
         t0 = Signal()
 
-        self.sync += i0.eq(pads.interrupt), t0.eq(pads.trigger)
+        self.sync += [
+                i0.eq(pads.interrupt),
+                t0.eq(pads.trigger),
+                pads.aux.eq(
+                    Cat(*(dac.out.aux for dac in dacs)) != 0),
+                pads.go2_out.eq(
+                    Cat(*(dac.out.line_in.stb for dac in dacs)) != 0),
+                #pads.go2_out.eq(pads.go2_in), # loop
+                #pads.go2_out.eq(0),
+                pads.reset.eq(self.reset),
+                self.reset.eq(self.rg.reset),
+        ]
 
         for dac in dacs:
             self.sync += [
                     dac.parser.interrupt.eq(i0),
                     dac.out.trigger.eq(t0 | self.trigger),
                     dac.parser.arm.eq(self.arm),
-                    ]
-
-        self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)
-        #self.comb += pads.go2_out.eq(pads.go2_in) # loop
-        self.comb += pads.go2_out.eq(Cat(*(~dac.out.stb for dac in dacs)) != 0)
+            ]
 
         self.sync += [
                 If(self.sink.stb,
                     Case(self.sink.payload.data, {
-                        0x00: self.reset.eq(1),   # RESET_EN
-                        0x01: self.reset.eq(0),   # RESET_DIS
-                        0x02: self.trigger.eq(1), # TRIGGER_EN
-                        0x03: self.trigger.eq(0), # TRIGGER_DIS
-                        0x04: self.arm.eq(1),     # ARM_EN
-                        0x05: self.arm.eq(0),     # ARM_DIS
+                        0x00: self.rg.trigger.eq(1),
+                        #0x01: self.rg.trigger.eq(0),
+                        0x02: self.trigger.eq(1),
+                        0x03: self.trigger.eq(0),
+                        0x04: self.arm.eq(1),
+                        0x05: self.arm.eq(0),
                     })
                 )
         ]

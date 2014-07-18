@@ -211,7 +211,8 @@ class Pdq(object):
 
     def add_mem_header(self, board, dac, chunk, adr=0):
         assert dac in range(self.num_dacs)
-        head = struct.pack("<BBHH", board, dac, adr, adr + len(chunk)//2)
+        head = struct.pack("<BBHH", board, dac, adr,
+                adr + len(chunk)//2 - 1)
         return head + chunk
 
     def multi_frame(self, times_voltages, channel, frame_map=None, **kwargs):
@@ -226,6 +227,8 @@ class Pdq(object):
 
 def main():
     import argparse
+    import time
+
     parser = argparse.ArgumentParser(description="""PDQ DAC frontend.
             Evaluates times and voltages, interpolates them and uploads
             them.""")
@@ -253,6 +256,9 @@ def main():
     parser.add_argument("-d", "--debug", default=False,
             action="store_true",
             help="debug communications")
+    parser.add_argument("-r", "--reset", default=False,
+            action="store_true",
+            help="do reset")
 
     args = parser.parse_args()
 
@@ -278,17 +284,20 @@ def main():
         fig.savefig(args.plot)
 
     dev = Pdq(serial=args.serial)
-    dev.write_cmd("RESET_EN")
+    if args.reset:
+        dev.write_cmd("RESET_EN")
+        time.sleep(.1)
     if args.channel is None:
         for channel in range(9):
             tv = [(times, .1*frame + channel + voltages)
                     for frame in range(dev.num_frames)]
-            dev.write_data(dev.multi_frame(tv, channel=channel, order=args.mode))
+            dev.write_data(dev.multi_frame(tv, channel=channel,
+                                           order=args.mode))
     else:
         tv = [(times, voltages)]
         frames = [0] * dev.num_frames
-        for channel in channels:
-            dev.write_data(dev.multi_frame(tv, channel=channel, order=args.mode))
+        dev.write_data(dev.multi_frame(tv, channel=args.channel,
+                                       order=args.mode, frame_map=frames))
     if not args.disarm:
         dev.write_cmd("ARM_EN")
     if args.free:

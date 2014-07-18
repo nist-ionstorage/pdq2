@@ -125,7 +125,7 @@ class TB(Module):
     def __init__(self, mem=None, top=None):
         dacs = []
         for i in range(3):
-            dac = Dac()
+            dac = InsertReset(Dac())
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)
             dac.parser.mem.init = [random.randrange(0, 1<<16)
@@ -134,7 +134,11 @@ class TB(Module):
         self.pads.interrupt.reset = 0
         self.pads.adr.reset = 15
         self.pads.trigger.reset = 0
-        self.submodules.comm = Comm(self.pads, dacs, mem)
+        self.submodules.comm = InsertReset(Comm(self.pads, dacs, mem),
+                ["sys"])
+        self.comb += self.comm.reset_sys.eq(self.comm.ctrl.reset)
+        for dac in dacs:
+            self.comb += dac.reset.eq(self.comm.ctrl.reset)
         self.outputs = []
 
     def do_simulation(self, selfp):
@@ -143,10 +147,13 @@ class TB(Module):
 
 
 def main():
+    from migen.fhdl import verilog
     from migen.sim.generic import run_simulation
     from migen.sim.icarus import Runner
     from matplotlib import pyplot as plt
     import numpy as np
+
+    #print(verilog.convert(TB([])))
 
     import pdq
     pdq.Ftdi = pdq.FileFtdi
@@ -156,13 +163,15 @@ def main():
 
     p = pdq.Pdq()
     mem = p.cmd("RESET_EN")
+    mem += p.cmd("ARM_DIS")
     mem += p.escape(p.multi_frame([(t, v)], channel=1))
     mem += p.cmd("ARM_EN")
     mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
     mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
 
     tb = TB(list(mem))
-    n = 2000
+
+    n = 2500
     run_simulation(tb, vcd_name="top.vcd", ncycles=n)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
