@@ -120,7 +120,7 @@ class DacOut(Module):
         adv = Signal()
         tic = Signal()
         toc = Signal()
-        stb = Signal()
+        self.stb = stb = Signal()
         toc0 = Signal()
         inc = Signal()
 
@@ -274,7 +274,7 @@ def main():
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
     k = 4
-    mem = p.combine_frames([p.frame(t, v, order=k).data])
+    mem = p.map_frames([bytes(p.frame(t, v, order=k).data)])
     tb = TB(list(np.fromstring(mem, "<u2")))
     run_simulation(tb, ncycles=300, vcd_name="dac.vcd")
 

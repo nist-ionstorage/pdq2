@@ -86,6 +86,7 @@ class Platform(XilinxISEPlatform):
             "-g DONE_cycle:6 -g Binary:Yes -w"
     ise_commands = """
 trce -v 12 -fastpaths -o {build_name} {build_name}.ncd {build_name}.pcf
+promgen -w -spi -c FF -p mcs -o {build_name}.mcs -u 0 {build_name}.bit
 """
     def __init__(self):
         XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,

@@ -118,20 +118,21 @@ class Ctrl(Module):
                     ]
 
         self.comb += pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0)
-        self.comb += pads.go2_out.eq(pads.go2_in) # dummy loop
-        #self.comb += pads.go2_out.eq(Cat(*(~dac.out.busy for dac in
-        #    dacs)) != 0)
+        #self.comb += pads.go2_out.eq(pads.go2_in) # loop
+        self.comb += pads.go2_out.eq(Cat(*(~dac.out.stb for dac in dacs)) != 0)
 
-        commands = {
-                "RESET_EN":    (0x00, [self.reset.eq(1)]),
-                "RESET_DIS":   (0x01, [self.reset.eq(0)]),
-                "TRIGGER_EN":  (0x02, [self.trigger.eq(1)]),
-                "TRIGGER_DIS": (0x03, [self.trigger.eq(0)]),
-                "ARM_EN":      (0x04, [self.arm.eq(1)]),
-                "ARM_DIS":     (0x05, [self.arm.eq(0)]),
-                }
-        self.sync += If(self.sink.stb, Case(self.sink.payload.data,
-            dict((code, act) for name, (code, act) in commands.items())))
+        self.sync += [
+                If(self.sink.stb,
+                    Case(self.sink.payload.data, {
+                        0x00: self.reset.eq(1),   # RESET_EN
+                        0x01: self.reset.eq(0),   # RESET_DIS
+                        0x02: self.trigger.eq(1), # TRIGGER_EN
+                        0x03: self.trigger.eq(0), # TRIGGER_DIS
+                        0x04: self.arm.eq(1),     # ARM_EN
+                        0x05: self.arm.eq(0),     # ARM_DIS
+                    })
+                )
+        ]
 
 
 class Comm(Module):

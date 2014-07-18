@@ -82,8 +82,8 @@ class Pdq(object):
     freq = 100e6 # samples/s
     min_time = 11 # processing time for a mode=4 point
     max_time = 1<<16 # unsigned 16 bit timer
-    num_boards = 3
     num_dacs = 3
+    num_frames = 8
     max_data = 4*(1<<10) # 8kx16 8kx16 4kx16
     escape_char = b"\xa5"
 
@@ -196,40 +196,29 @@ class Pdq(object):
                 line_len, frame.shape)
         return frame
 
-    def combine_frames(self, frames):
+    def map_frames(self, frames, frame_map=None):
+        if frame_map is None:
+            frame_map = range(min(len(frames), self.num_frames))
         table = []
-        adr = len(frames)
+        adr = len(frame_map)
         for frame in frames:
-            if frame:
-                table.append(adr)
-                adr += len(frame)//2
-            else:
-                table.append(0)
+            table.append(adr)
+            adr += len(frame)//2
         assert adr <= self.max_data, adr
-        chunk = bytes(np.array(table).astype("<u2").data)
-        logger.debug("mem len %i, %r", len(chunk), chunk)
-        for frame in frames:
-            if frame:
-                chunk += bytes(frame)
-        return chunk
+        t = struct.pack("<" + "H"*len(frame_map),
+                *(table[i] for i in frame_map))
+        return t + b"".join(frames)
 
     def add_mem_header(self, board, dac, chunk, adr=0):
         assert dac in range(self.num_dacs)
-        assert board in range(self.num_boards)
         head = struct.pack("<BBHH", board, dac, adr, adr + len(chunk)//2)
-        logger.debug("mem header %r", head)
         return head + chunk
 
-    def multi_frame(self, times_voltages, channel, **kwargs):
+    def multi_frame(self, times_voltages, channel, frame_map=None, **kwargs):
         frames = []
-        for i, tv in enumerate(times_voltages):
-            if tv is None:
-                frame = None
-            else:
-                t, v = tv
-                frame = self.frame(t, v, **kwargs).data
-            frames.append(frame)
-        data = self.combine_frames(frames)
+        for i, (t, v) in enumerate(times_voltages):
+            frames.append(bytes(self.frame(t, v, **kwargs).data))
+        data = self.map_frames(frames, frame_map)
         board, dac = divmod(channel, self.num_dacs)
         data = self.add_mem_header(board, dac, data)
         return data
@@ -244,8 +233,6 @@ def main():
             help="device (FT245R) serial string [first]")
     parser.add_argument("-c", "--channel", default=None, type=int,
             help="channel: 3*board_num+dac_num [%(default)s]")
-    parser.add_argument("-i", "--frame", default=None, type=int,
-            help="frame number [%(default)s]")
     parser.add_argument("-f", "--free", default=False,
             action="store_true",
             help="software trigger group, free running [%(default)s]")
@@ -291,18 +278,17 @@ def main():
         fig.savefig(args.plot)
 
     dev = Pdq(serial=args.serial)
-    data = []
-    channels = (args.channel is None) and range(9) or [args.channel]
-    for channel in channels:
-        if args.frame is None:
-            tv = [(.1*frame + channel + voltages, times)
-                    for frame in range(8)]
-        else:
-            tv = [None] * 8
-            tv[args.frame] = times, voltages
-        data.append(dev.multi_frame(tv, channel=channel, order=args.mode))
     dev.write_cmd("RESET_EN")
-    dev.write_data(*data)
+    if args.channel is None:
+        for channel in range(9):
+            tv = [(times, .1*frame + channel + voltages)
+                    for frame in range(dev.num_frames)]
+            dev.write_data(dev.multi_frame(tv, channel=channel, order=args.mode))
+    else:
+        tv = [(times, voltages)]
+        frames = [0] * dev.num_frames
+        for channel in channels:
+            dev.write_data(dev.multi_frame(tv, channel=channel, order=args.mode))
     if not args.disarm:
         dev.write_cmd("ARM_EN")
     if args.free:
