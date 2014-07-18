@@ -197,16 +197,23 @@ class Pdq(object):
         return frame
 
     def map_frames(self, frames, frame_map=None):
-        if frame_map is None:
-            frame_map = range(min(len(frames), self.num_frames))
         table = []
-        adr = len(frame_map)
+        adr = self.num_frames
         for frame in frames:
             table.append(adr)
             adr += len(frame)//2
         assert adr <= self.max_data, adr
-        t = struct.pack("<" + "H"*len(frame_map),
-                *(table[i] for i in frame_map))
+        t = []
+        for i in range(self.num_frames):
+            if i >= len(table):
+                t.append(0)
+            elif frame_map is None:
+                t.append(table[i])
+            elif i >= len(frame_map):
+                t.append(0)
+            else:
+                t.append(table[frame_map[i]])
+        t = struct.pack("<" + "H"*self.num_frames, *t)
         return t + b"".join(frames)
 
     def add_mem_header(self, board, dac, chunk, adr=0):

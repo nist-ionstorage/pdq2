@@ -8,6 +8,7 @@ from migen.flow.actor import *
 
 from dac import Dac
 from comm import Comm
+from ft245r import SimFt245r_rx
 
 
 class Soc(Module):
@@ -123,26 +124,25 @@ class TB(Module):
             ]
 
     def __init__(self, mem=None, top=None):
-        dacs = []
-        for i in range(3):
-            dac = InsertReset(Dac())
-            setattr(self.submodules, "dac{}".format(i), dac)
-            dacs.append(dac)
-            dac.parser.mem.init = [random.randrange(0, 1<<16)
-                    for i in range(dac.parser.mem.depth)]
         self.pads = Record(self.comm_pads)
-        self.pads.interrupt.reset = 0
         self.pads.adr.reset = 15
-        self.pads.trigger.reset = 0
-        self.submodules.comm = InsertReset(Comm(self.pads, dacs, mem),
-                ["sys"])
+        if mem is not None:
+            #reader = SimReader(mem)
+            simin = SimFt245r_rx(self.pads, mem)
+            self.submodules += simin
+        dacs = [InsertReset(Dac()) for i in range(3)]
+        self.submodules.comm = InsertReset(Comm(self.pads, dacs), ["sys"])
         self.comb += self.comm.reset_sys.eq(self.comm.ctrl.reset)
-        for dac in dacs:
+        for i, dac in enumerate(dacs):
+            setattr(self.submodules, "dac{}".format(i), dac)
+            dac.parser.mem.init = [random.randrange(1<<16)
+                    for i in range(dac.parser.mem.depth)]
             self.comb += dac.reset.eq(self.comm.ctrl.reset)
         self.outputs = []
 
     def do_simulation(self, selfp):
-        self.outputs.append(selfp.dac1.out.data)
+        self.outputs.append([
+            getattr(selfp, "dac{}".format(i)).out.data for i in range(3)])
     do_simulation.passive = True
 
 
@@ -158,7 +158,7 @@ def main():
     import pdq
     pdq.Ftdi = pdq.FileFtdi
 
-    t = np.arange(5)*.12e-6
+    t = np.arange(4)*.12e-6
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
 
     p = pdq.Pdq()
@@ -171,12 +171,12 @@ def main():
 
     tb = TB(list(mem))
 
-    n = 2500
+    n = 2000
     run_simulation(tb, vcd_name="top.vcd", ncycles=n)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
     plt.plot(t, v)
-    plt.plot(tim, out)
+    plt.plot(tim, out[:, 1])
     plt.show()
 
 

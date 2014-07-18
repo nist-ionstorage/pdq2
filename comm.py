@@ -94,7 +94,7 @@ class MemWriter(Module):
 
 
 class ResetGen(Module):
-    def __init__(self, n=1<<8):
+    def __init__(self, n=1<<7):
         self.trigger = Signal()
         self.reset = Signal()
 
@@ -107,10 +107,10 @@ class ResetGen(Module):
         ]
         self.sync.no_rst += [
                 self.reset.eq(run),
-                If(self.trigger,
-                    counter.eq(0)
-                ).Elif(run,
+                If(run,
                     counter.eq(counter + 1)
+                ).Elif(self.trigger,
+                    counter.eq(0)
                 )
         ]
 
@@ -139,6 +139,8 @@ class Ctrl(Module):
                     Cat(*(dac.out.line_in.stb for dac in dacs)) != 0),
                 #pads.go2_out.eq(pads.go2_in), # loop
                 #pads.go2_out.eq(0),
+        ]
+        self.comb += [
                 pads.reset.eq(self.reset),
                 self.reset.eq(self.rg.reset),
         ]
@@ -165,11 +167,7 @@ class Ctrl(Module):
 
 
 class Comm(Module):
-    def __init__(self, pads, dacs, mem=None):
-        if mem is not None:
-            #reader = SimReader(mem)
-            simin = SimFt245r_rx(pads, mem)
-            self.submodules += simin
+    def __init__(self, pads, dacs):
         reader = Ft245r_rx(pads)
         unescaper = Unescaper(data_layout, 0xa5)
         pack = Pack(data_layout, 2)
