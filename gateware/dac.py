@@ -4,6 +4,7 @@ from migen.fhdl.std import *
 from migen.genlib.record import Record
 from migen.genlib.misc import optree
 from migen.flow.actor import Source, Sink
+from migen.flow.plumbing import Multiplexer
 from migen.genlib.cordic import Cordic
 from migen.actorlib.fifo import SyncFIFO
 from migen.genlib.fsm import FSM, NextState
@@ -30,7 +31,7 @@ class Parser(Module):
         self.specials.mem = Memory(width=16, depth=mem_depth)
         self.specials.read = read = self.mem.get_port()
 
-        self.line_out = Source(line_layout)
+        self.source = Source(line_layout)
         self.arm = Signal()
         self.interrupt = Signal(4)
 
@@ -41,7 +42,7 @@ class Parser(Module):
         adr = Signal(flen(read.adr))
         inc = Signal()
 
-        lp = self.line_out.payload
+        lp = self.source.payload
         raw = Signal(flen(lp.raw_bits()))
         self.comb += lp.raw_bits().eq(raw)
         lpa = Array([raw[i:i + flen(read.dat_r)] for i in
@@ -79,8 +80,8 @@ class Parser(Module):
         )
         fsm.act("STB",
                 read.adr.eq(adr),
-                self.line_out.stb.eq(1),
-                If(self.line_out.ack,
+                self.source.stb.eq(1),
+                If(self.source.ack,
                     inc.eq(1),
                     If(lp.header.end,
                         NextState("IRQ")
@@ -108,15 +109,56 @@ class Parser(Module):
 
 class Streamer(Module):
     def __init__(self):
-        self.line_out = Source(line_layout)
-        self.data_in = Sink([("data", 16)])
+        self.source = Source(line_layout)
+        self.sink = Sink([("data", 16)])
+        self.arm = Signal()
 
         ###
+
+        lp = self.source.payload
+        raw = Signal(flen(lp.raw_bits()))
+        self.comb += lp.raw_bits().eq(raw)
+        lpa = Array([raw[i:i + flen(self.sink.payload.data)] for i in
+            range(0, flen(raw), flen(self.sink.payload.data))])
+        data_read = Signal(max=len(lpa))
+
+        self.submodules.fsm = fsm = FSM(reset_state="HEADER")
+        fsm.act("HEADER",
+                If(self.arm,
+                    self.sink.ack.eq(1),
+                    NextState("LINE")
+                )
+        )
+        fsm.act("LINE",
+                self.sink.ack.eq(1),
+                If(data_read == lp.header.length,
+                    NextState("STB")
+                )
+        )
+        fsm.act("STB",
+                If(self.arm,
+                    self.source.stb.eq(1),
+                    If(self.source.ack,
+                        NextState("HEADER")
+                    )
+                )
+        )
+
+        self.sync += [
+                If(fsm.ongoing("HEADER"),
+                    raw.eq(self.sink.payload.data),
+                    data_read.eq(1),
+                ),
+                If(fsm.ongoing("LINE"),
+                    lpa[data_read].eq(self.sink.payload.data),
+                    data_read.eq(data_read + 1),
+                )
+        ]
 
 
 class DacOut(Module):
     def __init__(self):
-        self.line_in = Sink(line_layout)
+        self.sink = Sink(line_layout)
 
         self.trigger = Signal()
         self.aux = Signal()
@@ -136,17 +178,17 @@ class DacOut(Module):
         toc0 = Signal()
         inc = Signal()
 
-        lp = self.line_in.payload
+        lp = self.sink.payload
 
         self.comb += [
                 self.aux.eq(line.header.aux),
                 self.silence.eq(line.header.silence),
-                adv.eq(self.trigger | (self.line_in.stb & ~lp.header.wait)),
+                adv.eq(self.trigger | (self.sink.stb & ~lp.header.wait)),
                 tic.eq(dt_dec == dt_end),
                 toc.eq(dt == line.dt),
-                self.line_in.ack.eq(tic & toc & adv),
+                self.sink.ack.eq(tic & toc & adv),
                 inc.eq(tic & ~(toc & (adv | toc0))),
-                stb.eq(self.line_in.stb & self.line_in.ack),
+                stb.eq(self.sink.stb & self.sink.ack),
         ]
 
         subs = [
@@ -236,17 +278,27 @@ class Dds(Module):
 
 
 class Dac(Module):
-    def __init__(self, fifo=0, **kwargs):
+    def __init__(self, fifo=0, stream=False, **kwargs):
         self.submodules.parser = Parser(**kwargs)
+        if stream:
+            self.submodules.streamer = Streamer()
+            self.submodules.mux = Multiplexer(line_layout, 2)
+            self.comb += [
+                    self.mux.sink0.connect(self.parser.source),
+                    self.mux.sink1.connect(self.streamer.source),
+            ]
+            source = self.mux.source
+        else:
+            source = self.parser.source
         self.submodules.out = DacOut()
         if fifo:
             self.submodules.fifo = SyncFIFO(line_layout, fifo)
             self.comb += [
-                    self.fifo.sink.connect(self.parser.line_out),
-                    self.out.line_in.connect(self.fifo.source),
+                    self.fifo.sink.connect(source),
+                    self.out.sink.connect(self.fifo.source),
             ]
         else:
-            self.comb += self.out.line_in.connect(self.parser.line_out)
+            self.comb += self.out.sink.connect(source)
 
 
 class TB(Module):
@@ -272,8 +324,8 @@ class TB(Module):
 
         #if selfp.simulator.cycle_counter == 200:
         #    self.dac.parser.interrupt = 0
-        if (selfp.dac.out.line_in.ack and
-                selfp.dac.out.line_in.stb):
+        if (selfp.dac.out.sink.ack and
+                selfp.dac.out.sink.stb):
             print("cycle {} data {}".format(
                 selfp.simulator.cycle_counter,
                 selfp.dac.out.data))
