@@ -83,7 +83,7 @@ class Pdq(object):
     max_out = 10.
     scale = max_val/max_out # LSB/V
     freq = 100e6 # samples/s
-    min_time = 11 # processing time for a mode=4 point
+    min_time = 12 # processing time for a order=4 point
     max_time = 1<<16 # unsigned 16 bit timer
     num_dacs = 3
     num_frames = 8
@@ -130,32 +130,29 @@ class Pdq(object):
 
     def interpolate(self, times, voltages, order, shift=0):
         """
-        calculate b-spline interpolation derivatives for voltage data
-        according to interpolation mode
-        returns times, voltages and derivatives suitable for passing to
-        frame()
-        also removes the first times point (implicitly shifts to 0) and
-        the last voltages/derivatives (irrelevant since the section ends
-        here)
+        calculate spline interpolation derivatives for data
+        according to interpolation order
+        also differentiates times (implicitly shifts to 0) and removes
+        the last voltage (irrelevant since the frame ends here)
         """
         times = times*(self.freq/(1<<shift))
-        voltages = np.clip(voltages, -self.max_val, self.max_val)*self.scale
-        spline = interpolate.splrep(times, voltages, k=order-1)
+        spline = interpolate.splrep(times, voltages, k=order)
         times = np.rint(times)
         derivatives = [interpolate.splev(times[:-1], spline, der=i)
-                for i in range(order)]
-        # FIXME: clipped intervals cumulatively skew
-        # subsequent ones
-        times = np.clip(np.diff(times), self.min_time, self.max_time)
-        assert np.all(times > 0)
+                for i in range(order + 1)]
+        times = np.diff(times)
+        # FIXME: clipped intervals cumulatively skew subsequent ones
+        #np.clip(times, self.min_time, self.max_time, out=times)
+        assert np.all(times > 0), times
         return times, derivatives
 
-    def frame(self, times, voltages, order=4, aux=None,
+    def frame(self, times, voltages, order=3, aux=None,
             time_shift=0, wait=True, end=True):
         """
         serialize frame data
         voltages in volts, times in seconds,
         """
+        voltages = np.clip(voltages, -self.max_val, self.max_val)*self.scale
         times, derivatives = self.interpolate(times, voltages,
                 order, time_shift)
         words = [1, 2, 3, 3]
@@ -168,7 +165,7 @@ class Pdq(object):
         head[:] |= line_len<<0 # 4
         head[:] |= 0<<4 # typ # 2
         head[0] |= wait<<6 # 1
-        head[:] |= 0<<7 # silence # 1
+        head[-1] |= 0<<7 # silence # 1
         if aux is not None:
             head[:] |= aux[:length]<<8 # 1
         head[:] |= time_shift<<9 # 4
@@ -242,7 +239,7 @@ def main():
             help="channel: 3*board_num+dac_num [%(default)s]")
     parser.add_argument("-f", "--free", default=False,
             action="store_true",
-            help="software trigger group, free running [%(default)s]")
+            help="software trigger [%(default)s]")
     parser.add_argument("-n", "--disarm", default=False,
             action="store_true",
             help="disarm group [%(default)s]")
@@ -252,17 +249,14 @@ def main():
     parser.add_argument("-v", "--voltages",
             default="(1-np.cos(t/t[-1]*np.pi))/2",
             help="sample voltages (V) [%(default)s]")
-    parser.add_argument("-m", "--mode", default=4, type=int,
-            help="interpolation (0: only aux, 1: const, 2: lin, 3: quad, 4: cubic)"
+    parser.add_argument("-o", "--order", default=3, type=int,
+            help="interpolation (0: const, 1: lin, 2: quad, 3: cubic)"
                  " [%(default)s]")
-    parser.add_argument("-p", "--plot",
-            help="plot to file [%(default)s]")
+    parser.add_argument("-p", "--plot", help="plot to file [%(default)s]")
     parser.add_argument("-d", "--debug", default=False,
-            action="store_true",
-            help="debug communications")
+            action="store_true", help="debug communications")
     parser.add_argument("-r", "--reset", default=False,
-            action="store_true",
-            help="do reset")
+            action="store_true", help="do reset before")
 
     args = parser.parse_args()
 
@@ -276,14 +270,12 @@ def main():
 
     if args.plot:
         from matplotlib import pyplot as plt
-        times -= times[0]
         fig, ax0 = plt.subplots()
         ax0.plot(times, voltages, "xk", label="points")
-        if args.mode > 1:
-            spline = interpolate.splrep(times, voltages,
-                    s=0, k=args.mode-1)
+        if args.order:
+            spline = interpolate.splrep(times, voltages, k=args.order)
             ttimes = np.arange(0, times[-1], 1/Pdq.freq)
-            vvoltages = interpolate.splev(ttimes, spline, der=0)
+            vvoltages = interpolate.splev(ttimes, spline)
             ax0.plot(ttimes, vvoltages, ",b", label="interpolation")
         fig.savefig(args.plot)
 
@@ -299,12 +291,12 @@ def main():
             tv = [(times, .1*frame + channel + voltages)
                     for frame in range(dev.num_frames)]
             dev.write_data(dev.multi_frame(tv, channel=channel,
-                                           order=args.mode))
+                                           order=args.order))
     else:
         tv = [(times, voltages)]
         map = [0] * dev.num_frames
         dev.write_data(dev.multi_frame(tv, channel=args.channel,
-                                       order=args.mode, map=map))
+                                       order=args.order, map=map))
     if not args.disarm:
         dev.write_cmd("ARM_EN")
     if args.free:

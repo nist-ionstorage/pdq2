@@ -149,7 +149,6 @@ class DacOut(Module):
                         inc.eq(1)
                     )
                 ),
-                #inc.eq(tic & ~(toc & (adv | toc0))),
                 stb.eq(self.sink.stb & self.sink.ack),
         ]
 
@@ -211,16 +210,17 @@ class Dds(Module):
 
         self.submodules.cordic = Cordic(width=16, eval_mode="pipelined")
 
+        zi = Signal(32)
         z = [Signal(32) for i in range(3)] # phase, dphase, ddphase
         x = [Signal(48) for i in range(4)] # amp, damp, ddamp, dddamp
         self.comb += [
                 self.cordic.xi.eq(x[0][32:]),
                 self.cordic.yi.eq(0),
-                self.cordic.zi.eq(z[0][16:]),
+                self.cordic.zi.eq(zi[16:] + z[0][16:]),
                 self.data.eq(self.cordic.xo),
                 ]
         self.sync += [
-                z[0].eq(z[0] + z[1]),
+                zi.eq(zi + z[1]),
                 If(inc,
                     x[0].eq(x[0] + x[1]),
                     x[1].eq(x[1] + x[2]),
@@ -233,6 +233,9 @@ class Dds(Module):
                     x[1].eq(0),
                     Cat(x[0][32:], x[1][16:], x[2], x[3], z[0][16:], z[1], z[2]
                         ).eq(data),
+                    If(data[16 + 32 + 48 + 48 + 16 + 32 - 1], # clear phase
+                        zi.eq(0),
+                    ),
                 )
         ]
 
@@ -263,15 +266,14 @@ class TB(Module):
         if selfp.simulator.cycle_counter == 5:
             selfp.dac.parser.arm = 1
         #    selfp.dac.parser.frame = 0
-        elif selfp.simulator.cycle_counter == 40:
+        elif selfp.simulator.cycle_counter == 20:
             selfp.dac.out.trigger = 1
-        elif selfp.simulator.cycle_counter == 41:
+        elif selfp.simulator.cycle_counter == 21:
             selfp.dac.out.trigger = 0
-        elif selfp.simulator.cycle_counter == 200:
+        elif selfp.simulator.cycle_counter == 100:
             selfp.dac.out.trigger = 1
-        elif selfp.simulator.cycle_counter == 201:
+        elif selfp.simulator.cycle_counter == 101:
             selfp.dac.out.trigger = 0
-
         #if selfp.simulator.cycle_counter == 200:
         #    self.dac.parser.frame = 0
         if (selfp.dac.out.sink.ack and
@@ -293,13 +295,13 @@ def _main():
 
     #print(verilog.convert(Dac()))
 
-    t = np.arange(0, 6) * .22e-6
+    t = np.arange(0, 6) * .12e-6
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
     p = pdq.Pdq()
-    k = 4
+    k = 3
     mem = p.map_frames([bytes(p.frame(t, v, order=k).data)])
     tb = TB(list(np.fromstring(mem, "<u2")))
-    run_simulation(tb, ncycles=300, vcd_name="dac.vcd")
+    run_simulation(tb, ncycles=200, vcd_name="dac.vcd")
 
     plt.plot(t, v, "xk")
 
@@ -310,7 +312,7 @@ def _main():
 
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
-    plt.plot(tim - 43/p.freq, out, "-r")
+    plt.plot(tim - 23/p.freq, out, "-r")
     plt.show()
 
 
