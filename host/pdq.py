@@ -156,7 +156,6 @@ class Pdq(object):
         serialize frame data
         voltages in volts, times in seconds,
         """
-        voltages = np.clip(voltages, -self.max_out, self.max_out)
         times, derivatives = self.interpolate(times, voltages,
                 order, time_shift)
         words = [1, 2, 3, 3]
@@ -196,7 +195,7 @@ class Pdq(object):
                 line_len, frame.shape)
         return frame
 
-    def map_frames(self, frames, frame_map=None):
+    def map_frames(self, frames, map=None):
         table = []
         adr = self.num_frames
         for frame in frames:
@@ -205,28 +204,26 @@ class Pdq(object):
         assert adr <= self.max_data, adr
         t = []
         for i in range(self.num_frames):
-            if i >= len(table):
-                t.append(0)
-            elif frame_map is None:
-                t.append(table[i])
-            elif i >= len(frame_map):
-                t.append(0)
+            if map is not None and len(map) > i:
+                i = map[i]
+            if i is not None and len(table) > i:
+                i = table[i]
             else:
-                t.append(table[frame_map[i]])
+                i = 0
+            t.append(i)
         t = struct.pack("<" + "H"*self.num_frames, *t)
         return t + b"".join(frames)
 
-    def add_mem_header(self, board, dac, chunk, adr=0):
+    def add_mem_header(self, board, dac, data, adr=0):
         assert dac in range(self.num_dacs)
         head = struct.pack("<HHH", (board << 4) | dac,
-                adr, adr + len(chunk)//2 - 1)
-        return head + chunk
+                adr, adr + len(data)//2 - 1)
+        return head + data
 
-    def multi_frame(self, times_voltages, channel, frame_map=None, **kwargs):
-        frames = []
-        for i, (t, v) in enumerate(times_voltages):
-            frames.append(bytes(self.frame(t, v, **kwargs).data))
-        data = self.map_frames(frames, frame_map)
+    def multi_frame(self, times_voltages, channel, map=None, **kwargs):
+        frames = [bytes(self.frame(t, v, **kwargs).data)
+            for t, v in times_voltages]
+        data = self.map_frames(frames, map)
         board, dac = divmod(channel, self.num_dacs)
         data = self.add_mem_header(board, dac, data)
         return data
@@ -305,9 +302,9 @@ def main():
                                            order=args.mode))
     else:
         tv = [(times, voltages)]
-        frames = [0] * dev.num_frames
+        map = [0] * dev.num_frames
         dev.write_data(dev.multi_frame(tv, channel=args.channel,
-                                       order=args.mode, frame_map=frames))
+                                       order=args.mode, map=map))
     if not args.disarm:
         dev.write_cmd("ARM_EN")
     if args.free:
