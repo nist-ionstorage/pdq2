@@ -20,7 +20,7 @@ _io = [
 
             Subsignal("adr", Pins("P32 P6 P14 P43")), # active low
             Subsignal("trigger", Pins("P110")), #F1
-            Subsignal("interrupt", Pins("P118 P124 P98")), #F2 F3 F4
+            Subsignal("frame", Pins("P118 P124 P98")), #F2 F3 F4
             Subsignal("aux", Pins("P99")), #F5 out
 
             Subsignal("go2_in", Pins("P169")), #GO_2 in

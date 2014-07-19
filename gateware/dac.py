@@ -33,7 +33,7 @@ class Parser(Module):
 
         self.source = Source(line_layout)
         self.arm = Signal()
-        self.interrupt = Signal(4)
+        self.frame = Signal(3)
 
         ###
 
@@ -49,9 +49,9 @@ class Parser(Module):
             range(0, flen(raw), flen(read.dat_r))])
         data_read = Signal(max=len(lpa))
 
-        self.submodules.fsm = fsm = FSM(reset_state="IRQ")
-        fsm.act("IRQ",
-                read.adr.eq(self.interrupt),
+        self.submodules.fsm = fsm = FSM(reset_state="JUMP")
+        fsm.act("JUMP",
+                read.adr.eq(self.frame),
                 If(self.arm,
                     NextState("FRAME")
                 )
@@ -60,7 +60,7 @@ class Parser(Module):
                 read.adr.eq(read.dat_r),
                 inc.eq(1),
                 If(read.dat_r == 0,
-                    NextState("IRQ")
+                    NextState("JUMP")
                 ).Else(
                     NextState("HEADER")
                 )
@@ -84,13 +84,13 @@ class Parser(Module):
                 If(self.source.ack,
                     inc.eq(1),
                     If(lp.header.end,
-                        NextState("IRQ")
+                        NextState("JUMP")
                     ).Else(
                         NextState("HEADER")
                     )
                 ),
                 If(~self.arm,
-                    NextState("IRQ")
+                    NextState("JUMP")
                 )
         )
 
@@ -312,7 +312,7 @@ class TB(Module):
         self.outputs.append(selfp.dac.out.data)
         if selfp.simulator.cycle_counter == 5:
             selfp.dac.parser.arm = 1
-        #    selfp.dac.parser.interrupt = 0
+        #    selfp.dac.parser.frame = 0
         elif selfp.simulator.cycle_counter == 40:
             selfp.dac.out.trigger = 1
         elif selfp.simulator.cycle_counter == 41:
@@ -323,7 +323,7 @@ class TB(Module):
             selfp.dac.out.trigger = 0
 
         #if selfp.simulator.cycle_counter == 200:
-        #    self.dac.parser.interrupt = 0
+        #    self.dac.parser.frame = 0
         if (selfp.dac.out.sink.ack and
                 selfp.dac.out.sink.stb):
             print("cycle {} data {}".format(

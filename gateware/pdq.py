@@ -106,7 +106,7 @@ class TB(Module):
             ("data", 8),
             ("adr", 4),
             ("aux", 1),
-            ("interrupt", 3),
+            ("frame", 3),
             ("trigger", 1),
             ("reset", 1),
             ("go2_in", 1),

@@ -127,12 +127,12 @@ class Ctrl(Module):
         self.submodules.rg = ResetGen()
 
         # two stage synchronizer for inputs
-        i0 = Signal(flen(pads.interrupt))
-        t0 = Signal()
+        frame = Signal(flen(pads.frame))
+        trigger = Signal()
 
         self.sync += [
-                i0.eq(pads.interrupt),
-                t0.eq(pads.trigger),
+                frame.eq(pads.frame),
+                trigger.eq(pads.trigger),
                 pads.aux.eq(
                     Cat(*(dac.out.aux for dac in dacs)) != 0),
                 pads.go2_out.eq(
@@ -147,8 +147,8 @@ class Ctrl(Module):
 
         for dac in dacs:
             self.sync += [
-                    dac.parser.interrupt.eq(i0),
-                    dac.out.trigger.eq(t0 | self.trigger),
+                    dac.parser.frame.eq(frame),
+                    dac.out.trigger.eq(trigger | self.trigger),
                     dac.parser.arm.eq(self.arm),
             ]
 
