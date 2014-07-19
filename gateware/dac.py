@@ -15,7 +15,7 @@ line_layout = [
             ("typ", 2), # volt, dds
             ("wait", 1), # wait for trigger before
             ("silence", 1), # shut down clock during
-            ("aux", 1), # aux channel
+            ("aux", 1), # aux channel value
             ("shift", 4), # time shift
             ("end", 1), # return to jump table afterwards
             ("reserved", 2),
@@ -26,13 +26,15 @@ line_layout = [
 
 
 class Parser(Module):
-    def __init__(self, mem_depth=4*(1<<10)): # XC3S500E: 20BRAMS 18bits 1024loc
+    def __init__(self, mem_depth=4*(1<<10)): # XC3S500E: 20x18bx1024
         self.specials.mem = Memory(width=16, depth=mem_depth)
         self.specials.read = read = self.mem.get_port()
 
         self.line_out = Source(line_layout)
         self.arm = Signal()
         self.interrupt = Signal(4)
+
+        ###
 
         frame_length = Signal(flen(read.dat_r))
         frame_read = Signal(flen(read.dat_r))
@@ -104,6 +106,14 @@ class Parser(Module):
         ]
 
 
+class Streamer(Module):
+    def __init__(self):
+        self.line_out = Source(line_layout)
+        self.data_in = Sink([("data", 16)])
+
+        ###
+
+
 class DacOut(Module):
     def __init__(self):
         self.line_in = Sink(line_layout)
@@ -112,6 +122,8 @@ class DacOut(Module):
         self.aux = Signal()
         self.silence = Signal()
         self.data = Signal(16)
+
+        ###
 
         line = Record(line_layout)
         dt_dec = Signal(16)
@@ -168,6 +180,8 @@ class Volt(Module):
     def __init__(self, data, stb, tic):
         self.data = Signal(16)
 
+        ###
+
         v = [Signal(48) for i in range(4)] # amp, damp, ddamp, dddamp
         self.comb += self.data.eq(v[0][32:])
 
@@ -187,10 +201,13 @@ class Volt(Module):
 
 class Dds(Module):
     def __init__(self, data, stb, tic):
+        self.data = Signal(16)
+
+        ###
+
         self.submodules.cordic = Cordic(width=16, guard=None,
                 eval_mode="pipelined", cordic_mode="rotate",
                 func_mode="circular")
-        self.data = Signal(16)
 
         z = [Signal(48) for i in range(3)] # phase, dphase, ddphase
         x = [Signal(48) for i in range(3)] # amp, damp, ddamp
@@ -212,7 +229,8 @@ class Dds(Module):
                     z[1].eq(0),
                     x[0].eq(0),
                     x[1].eq(0),
-                    Cat(z[0][32:], x[0][32:], z[1][16:], x[1][16:], z[2], x[2]).eq(data),
+                    Cat(z[0][32:], x[0][32:], z[1][16:], x[1][16:], z[2], x[2]
+                        ).eq(data),
                 )
         ]
 
