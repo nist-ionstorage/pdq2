@@ -26,7 +26,7 @@ class Pdq(Module):
                     clk_p.eq(clkin),
                     clk_n.eq(~clkin),
                     self.cd_sys.rst.eq(rst),
-                    ]
+            ]
         else:
             clkin_sdr = Signal()
             self.specials += Instance("IBUFG", i_I=clkin, o_O=clkin_sdr)
@@ -111,7 +111,7 @@ class TB(Module):
             ("reset", 1),
             ("go2_in", 1),
             ("go2_out", 1),
-            ]
+    ]
 
     def __init__(self, mem=None):
         self.pads = Record(self.comm_pads)

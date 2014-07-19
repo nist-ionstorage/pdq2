@@ -25,42 +25,45 @@ mem_layout = [("data", 16)]
 
 
 class MemWriter(Module):
-    def __init__(self, adr, dacs):
+    def __init__(self, board, dacs):
         self.sink = Sink(mem_layout)
+
+        ###
 
         mems = [dac.parser.mem.get_port(write_capable=True) for dac in dacs]
         self.specials += mems
 
         dac = Signal(max=len(dacs))
-        mem_adr = Signal(16)
-        mem_end = Signal(16)
+        adr = Signal(16)
+        end = Signal(16)
         listen = Signal()
         we = Signal()
+        inc = Signal()
         pd = self.sink.payload.data
 
         self.sink.ack.reset = 1
 
         self.comb += [
-                Array(mem.we for mem in mems)[dac].eq(we)
+                Array(m.we for m in mems)[dac].eq(we),
         ]
         for mem in mems:
             self.comb += [
-                    mem.adr.eq(mem_adr),
+                    mem.adr.eq(adr),
                     mem.dat_w.eq(pd)
             ]
 
-        self.submodules.fsm = fsm = FSM(reset_state="DEV_ADR")
-        fsm.act("DEV_ADR",
+        self.submodules.fsm = fsm = FSM(reset_state="DEV")
+        fsm.act("DEV",
                 If(self.sink.stb,
-                    NextState("MEM_ADR")
+                    NextState("START")
                 )
         )
-        fsm.act("MEM_ADR",
+        fsm.act("START",
                 If(self.sink.stb,
-                    NextState("MEM_END")
+                    NextState("END")
                 )
         )
-        fsm.act("MEM_END",
+        fsm.act("END",
                 If(self.sink.stb,
                     NextState("DATA")
                 )
@@ -68,26 +71,27 @@ class MemWriter(Module):
         fsm.act("DATA",
                 If(self.sink.stb,
                     we.eq(listen),
-                    If(mem_adr == mem_end,
-                        NextState("DEV_ADR")
+                    inc.eq(1),
+                    If(adr == end,
+                        NextState("DEV")
                     )
                 )
         )
 
         self.sync += [
-                If(fsm.ongoing("DEV_ADR"),
-                    listen.eq(pd[:flen(adr)] == adr),
-                    dac.eq(pd[8:])
+                If(fsm.ongoing("DEV"),
+                    dac.eq(pd[:4]),
+                    listen.eq(pd[4:4+flen(board)] == board),
                 ),
-                If(fsm.ongoing("MEM_ADR"),
-                    mem_adr.eq(pd)
+                If(fsm.ongoing("START"),
+                    adr.eq(pd)
                 ),
-                If(fsm.ongoing("MEM_END"),
-                    mem_end.eq(pd)
+                If(fsm.ongoing("END"),
+                    end.eq(pd)
                 ),
                 If(fsm.ongoing("DATA"),
-                    If(self.sink.stb,
-                        mem_adr.eq(mem_adr + 1),
+                    If(inc,
+                        adr.eq(adr + 1)
                     )
                 )
         ]
@@ -97,6 +101,8 @@ class ResetGen(Module):
     def __init__(self, n=1<<7):
         self.trigger = Signal()
         self.reset = Signal()
+
+        ###
 
         self.clock_domains.cd_no_rst = ClockDomain(reset_less=True)
         counter = Signal(max=n)
@@ -119,6 +125,8 @@ class Ctrl(Module):
         self.trigger = Signal()
         self.arm = Signal()
         self.sink = Sink(bus_layout)
+
+        ###
 
         self.sink.ack.reset = 1
 
@@ -172,6 +180,8 @@ class Comm(Module):
         self.submodules.cast = Cast(pack_layout(bus_layout, 2), mem_layout)
         self.submodules.memwriter = MemWriter(~pads.adr, dacs) # adr active low
         self.submodules.ctrl = Ctrl(pads, dacs)
+
+        ###
 
         self.comb += [
                 self.unescaper.sink.connect(self.reader.source),

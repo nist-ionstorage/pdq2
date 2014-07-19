@@ -95,62 +95,15 @@ class Parser(Module):
         )
 
         self.sync += [
-                adr.eq(read.adr + inc),
+                If(inc,
+                    adr.eq(read.adr + 1),
+                ),
                 If(fsm.ongoing("HEADER"),
                     raw.eq(read.dat_r),
                     data_read.eq(1),
                 ),
                 If(fsm.ongoing("LINE"),
                     lpa[data_read].eq(read.dat_r),
-                    data_read.eq(data_read + 1),
-                )
-        ]
-
-
-class Streamer(Module):
-    def __init__(self):
-        self.source = Source(line_layout)
-        self.sink = Sink([("data", 16)])
-        self.arm = Signal()
-
-        ###
-
-        lp = self.source.payload
-        raw = Signal(flen(lp.raw_bits()))
-        self.comb += lp.raw_bits().eq(raw)
-        lpa = Array([raw[i:i + flen(self.sink.payload.data)] for i in
-            range(0, flen(raw), flen(self.sink.payload.data))])
-        data_read = Signal(max=len(lpa))
-
-        self.submodules.fsm = fsm = FSM(reset_state="HEADER")
-        fsm.act("HEADER",
-                If(self.arm,
-                    self.sink.ack.eq(1),
-                    NextState("LINE")
-                )
-        )
-        fsm.act("LINE",
-                self.sink.ack.eq(1),
-                If(data_read == lp.header.length,
-                    NextState("STB")
-                )
-        )
-        fsm.act("STB",
-                If(self.arm,
-                    self.source.stb.eq(1),
-                    If(self.source.ack,
-                        NextState("HEADER")
-                    )
-                )
-        )
-
-        self.sync += [
-                If(fsm.ongoing("HEADER"),
-                    raw.eq(self.sink.payload.data),
-                    data_read.eq(1),
-                ),
-                If(fsm.ongoing("LINE"),
-                    lpa[data_read].eq(self.sink.payload.data),
                     data_read.eq(data_read + 1),
                 )
         ]
@@ -187,7 +140,16 @@ class DacOut(Module):
                 tic.eq(dt_dec == dt_end),
                 toc.eq(dt == line.dt),
                 self.sink.ack.eq(tic & toc & adv),
-                inc.eq(tic & ~(toc & (adv | toc0))),
+                If(tic,
+                    If(~toc,
+                        inc.eq(1)
+                    ).Elif(adv,
+                        inc.eq(1)
+                    ).Elif(~toc0,
+                        inc.eq(1)
+                    )
+                ),
+                #inc.eq(tic & ~(toc & (adv | toc0))),
                 stb.eq(self.sink.stb & self.sink.ack),
         ]
 
@@ -219,7 +181,7 @@ class DacOut(Module):
 
 
 class Volt(Module):
-    def __init__(self, data, stb, tic):
+    def __init__(self, data, stb, inc):
         self.data = Signal(16)
 
         ###
@@ -228,7 +190,7 @@ class Volt(Module):
         self.comb += self.data.eq(v[0][32:])
 
         self.sync += [
-                If(tic,
+                If(inc,
                     v[0].eq(v[0] + v[1]),
                     v[1].eq(v[1] + v[2]),
                     v[2].eq(v[2] + v[3]),
@@ -242,14 +204,12 @@ class Volt(Module):
 
 
 class Dds(Module):
-    def __init__(self, data, stb, tic):
+    def __init__(self, data, stb, inc):
         self.data = Signal(16)
 
         ###
 
-        self.submodules.cordic = Cordic(width=16, guard=None,
-                eval_mode="pipelined", cordic_mode="rotate",
-                func_mode="circular")
+        self.submodules.cordic = Cordic(width=16, eval_mode="pipelined")
 
         z = [Signal(48) for i in range(3)] # phase, dphase, ddphase
         x = [Signal(48) for i in range(3)] # amp, damp, ddamp
@@ -260,9 +220,9 @@ class Dds(Module):
                 self.data.eq(self.cordic.xo),
                 ]
         self.sync += [
-                If(tic,
-                    z[0].eq(z[0] + z[1]),
-                    z[1].eq(z[1] + z[2]),
+                z[0].eq(z[0] + z[1]),
+                z[1].eq(z[1] + z[2]),
+                If(inc,
                     x[0].eq(x[0] + x[1]),
                     x[1].eq(x[1] + x[2]),
                 ),
@@ -278,27 +238,17 @@ class Dds(Module):
 
 
 class Dac(Module):
-    def __init__(self, fifo=0, stream=False, **kwargs):
+    def __init__(self, fifo=8, **kwargs):
         self.submodules.parser = Parser(**kwargs)
-        if stream:
-            self.submodules.streamer = Streamer()
-            self.submodules.mux = Multiplexer(line_layout, 2)
-            self.comb += [
-                    self.mux.sink0.connect(self.parser.source),
-                    self.mux.sink1.connect(self.streamer.source),
-            ]
-            source = self.mux.source
-        else:
-            source = self.parser.source
         self.submodules.out = DacOut()
         if fifo:
             self.submodules.fifo = SyncFIFO(line_layout, fifo)
             self.comb += [
-                    self.fifo.sink.connect(source),
+                    self.fifo.sink.connect(self.parser.source),
                     self.out.sink.connect(self.fifo.source),
             ]
         else:
-            self.comb += self.out.sink.connect(source)
+            self.comb += self.out.sink.connect(self.parser.source)
 
 
 class TB(Module):

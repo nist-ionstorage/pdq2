@@ -221,8 +221,8 @@ class Pdq(object):
 
     def add_mem_header(self, board, dac, chunk, adr=0):
         assert dac in range(self.num_dacs)
-        head = struct.pack("<BBHH", board, dac, adr,
-                adr + len(chunk)//2 - 1)
+        head = struct.pack("<BBHH", (board << 4) | dac, 0,
+                adr, adr + len(chunk)//2 - 1)
         return head + chunk
 
     def multi_frame(self, times_voltages, channel, frame_map=None, **kwargs):
