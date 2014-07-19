@@ -218,7 +218,7 @@ class Pdq(object):
 
     def add_mem_header(self, board, dac, chunk, adr=0):
         assert dac in range(self.num_dacs)
-        head = struct.pack("<BBHH", (board << 4) | dac, 0,
+        head = struct.pack("<HHH", (board << 4) | dac,
                 adr, adr + len(chunk)//2 - 1)
         return head + chunk
 

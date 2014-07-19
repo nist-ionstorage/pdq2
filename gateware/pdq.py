@@ -153,7 +153,7 @@ def _main():
     p = pdq.Pdq()
     mem = b"\x00" # flush any escape
     mem += p.cmd("RESET_EN")
-    mem += p.escape(p.multi_frame([(t, v)], channel=1))
+    mem += p.escape(p.multi_frame([(t, v)], channel=2))
     mem += p.cmd("ARM_EN")
     mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
     mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
@@ -164,7 +164,7 @@ def _main():
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
     plt.plot(t, v)
-    plt.plot(tim, out[:, 1])
+    plt.plot(tim, out[:, 2])
     plt.show()
 
 
