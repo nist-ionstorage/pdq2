@@ -150,18 +150,15 @@ class Pdq(object):
         assert np.all(times > 0)
         return times, derivatives
 
-    def frame(self, times, derivatives, order=4, aux=None,
+    def frame(self, times, voltages, order=4, aux=None,
             time_shift=0, wait=True, end=True):
         """
         serialize frame data
         voltages in volts, times in seconds,
-        derivatives can be a number in which case the derivatives will
-        be the interpolation, else it should be a list of derivatives
         """
-        if not isinstance(derivatives, list):
-            derivatives = np.clip(derivatives, -self.max_out, self.max_out)
-            times, derivatives = self.interpolate(times, derivatives,
-                    order, time_shift)
+        voltages = np.clip(voltages, -self.max_out, self.max_out)
+        times, derivatives = self.interpolate(times, voltages,
+                order, time_shift)
         words = [1, 2, 3, 3]
         line_len = sum(words[:len(derivatives)]) + 1 # dt
         length = len(times)
