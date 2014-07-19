@@ -2,7 +2,6 @@
 # -*- coding: utf8 -*-
 #
 # Robert Jordens <jordens@gmail.com>, 2012
-#
 
 import logging, struct
 import numpy as np
@@ -48,10 +47,14 @@ class D2xxFtdi(object):
 class FileFtdi(object):
     def __init__(self, serial="unknown"):
         self.fil = open("pdq_%s_ftdi.bin" % serial, "wb")
+
     def write(self, data):
         written = self.fil.write(data)
         return len(data)
 
+    def close(self):
+        self.fil.close()
+        del self.fil
 
 Ftdi = None
 
@@ -237,7 +240,7 @@ def main():
     import time
 
     parser = argparse.ArgumentParser(description="""PDQ DAC frontend.
-            Evaluates times and voltages, interpolates them and uploads
+            Evaluates times and voltages, interpolates and uploads
             them.""")
     parser.add_argument("-s", "--serial", default=None,
             help="device (FT245R) serial string [first]")
@@ -294,6 +297,8 @@ def main():
     if args.reset:
         dev.write_cmd("RESET_EN")
         time.sleep(.1)
+    else:
+        dev.write_cmd("ARM_DIS")
     if args.channel is None:
         for channel in range(9):
             tv = [(times, .1*frame + channel + voltages)
