@@ -295,6 +295,7 @@ def main():
 
     dev = Pdq(serial=args.serial)
     if args.reset:
+        dev.write(b"\x00") # flush any escape
         dev.write_cmd("RESET_EN")
         time.sleep(.1)
     else:

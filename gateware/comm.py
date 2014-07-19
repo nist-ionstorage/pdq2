@@ -100,18 +100,16 @@ class ResetGen(Module):
 
         self.clock_domains.cd_no_rst = ClockDomain(reset_less=True)
         counter = Signal(max=n)
-        run = Signal()
         self.comb += [
                 self.cd_no_rst.clk.eq(ClockSignal()),
-                run.eq(counter != n - 1)
+                self.reset.eq(counter != n - 1)
         ]
         self.sync.no_rst += [
-                self.reset.eq(run),
-                If(run,
-                    counter.eq(counter + 1)
-                ).Elif(self.trigger,
+                If(self.trigger,
                     counter.eq(0)
-                )
+                ).Elif(self.reset,
+                    counter.eq(counter + 1)
+                ),
         ]
 
 
@@ -141,8 +139,8 @@ class Ctrl(Module):
                 #pads.go2_out.eq(0),
         ]
         self.comb += [
-                pads.reset.eq(self.reset),
                 self.reset.eq(self.rg.reset),
+                pads.reset.eq(ResetSignal()),
         ]
 
         for dac in dacs:

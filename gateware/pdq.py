@@ -113,7 +113,7 @@ class TB(Module):
             ("go2_out", 1),
             ]
 
-    def __init__(self, mem=None, top=None):
+    def __init__(self, mem=None):
         self.pads = Record(self.comm_pads)
         self.pads.adr.reset = 15
         if mem is not None:
@@ -151,8 +151,8 @@ def _main():
     v = 9*(1-np.cos(t/t[-1]*np.pi))/2
 
     p = pdq.Pdq()
-    mem = p.cmd("RESET_EN")
-    mem += p.cmd("ARM_DIS")
+    mem = b"\x00" # flush any escape
+    mem += p.cmd("RESET_EN")
     mem += p.escape(p.multi_frame([(t, v)], channel=1))
     mem += p.cmd("ARM_EN")
     mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
@@ -160,8 +160,7 @@ def _main():
 
     tb = TB(list(mem))
 
-    n = 2000
-    run_simulation(tb, vcd_name="top.vcd", ncycles=n)
+    run_simulation(tb, vcd_name="pdq.vcd", ncycles=2000)
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
     plt.plot(t, v)

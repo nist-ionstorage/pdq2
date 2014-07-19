@@ -6,8 +6,8 @@ from gateware.pdq import Pdq
 
 def _main():
     platform = Platform()
-    soc = Pdq(platform, fast=True)
-    platform.build_cmdline(soc)
+    pdq = Pdq(platform)
+    platform.build_cmdline(pdq, build_name="pdq")
 
 
 if __name__ == "__main__":
