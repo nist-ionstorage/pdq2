@@ -21,7 +21,8 @@ class SimFt245r_rx(Module):
                     pads.data.eq(self.dat),
                 ).Else(
                     pads.data.eq(0x55),
-                )]
+                )
+        ]
         self.state = "fill"
         self.wait = 10
 
@@ -53,12 +54,12 @@ class SimFt245r_rx(Module):
                 self.state = "fill"
 
 
-data_layout = [("data", 8)]
+bus_layout = [("data", 8)]
 
 
 class Ft245r_rx(Module):
     def __init__(self, pads, clk=10.):
-        self.source = do = Source(data_layout)
+        self.source = do = Source(bus_layout)
         self.busy = Signal()
 
         # t_RDLl_Dv = 50 ns (setup)

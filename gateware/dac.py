@@ -22,7 +22,7 @@ line_layout = [
         ]),
         ("dt", 16),
         ("data", 14*16),
-        ]
+]
 
 
 class Parser(Module):
@@ -100,7 +100,7 @@ class Parser(Module):
                 If(fsm.ongoing("LINE"),
                     lpa[data_read].eq(read.dat_r),
                     data_read.eq(data_read + 1),
-                ),
+                )
         ]
 
 
@@ -181,7 +181,8 @@ class Volt(Module):
                     v[0].eq(0),
                     v[1].eq(0),
                     Cat(v[0][32:], v[1][16:], v[2], v[3]).eq(data),
-                )]
+                )
+        ]
 
 
 class Dds(Module):
@@ -212,7 +213,8 @@ class Dds(Module):
                     x[0].eq(0),
                     x[1].eq(0),
                     Cat(z[0][32:], x[0][32:], z[1][16:], x[1][16:], z[2], x[2]).eq(data),
-                )]
+                )
+        ]
 
 
 class Dac(Module):
@@ -259,13 +261,14 @@ class TB(Module):
                 selfp.dac.out.data))
 
 
-def main():
+def _main():
     from migen.fhdl import verilog
     from migen.sim.generic import run_simulation
     from matplotlib import pyplot as plt
     import numpy as np
     from scipy import interpolate
-    import pdq
+
+    from host import pdq
     pdq.Ftdi = pdq.FileFtdi
 
     #print(verilog.convert(Dac()))
@@ -292,4 +295,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    _main()

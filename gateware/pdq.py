@@ -6,12 +6,12 @@ from migen.fhdl.std import *
 from migen.genlib.record import Record
 from migen.flow.actor import *
 
-from dac import Dac
-from comm import Comm
-from ft245r import SimFt245r_rx
+from .dac import Dac
+from .comm import Comm
+from .ft245r import SimFt245r_rx
 
 
-class Soc(Module):
+class Pdq(Module):
     def __init__(self, platform, fast=True, silence=True):
         self.clock_domains.cd_sys = ClockDomain()
         clk_p = self.cd_sys.clk
@@ -20,11 +20,6 @@ class Soc(Module):
 
         clkin = platform.request("clk50")
         clkin_period = 20
-
-        platform.add_platform_command("""
-NET "{clk50}" TNM_NET = "grp_clk50";
-TIMESPEC "ts_grp_clk50" = PERIOD "grp_clk50" 20 ns HIGH 50%;
-""", clk50=clkin)
 
         if not fast:
             self.comb += [
@@ -79,25 +74,20 @@ TIMESPEC "ts_grp_clk50" = PERIOD "grp_clk50" 20 ns HIGH 50%;
 
             pads = platform.request("dac", i)
             # inverted clocks ensure setup and hold times of data
-            if silence:
-                self.specials += Instance("ODDR2",
-                        i_C0=clk_p, i_C1=clk_n, i_CE=~dac.out.silence,
-                        i_D0=0, i_D1=1, i_R=0, i_S=0, o_Q=pads.clk_p)
-                self.specials += Instance("ODDR2",
-                        i_C0=clk_p, i_C1=clk_n, i_CE=~dac.out.silence,
-                        i_D0=1, i_D1=0, i_R=0, i_S=0, o_Q=pads.clk_n)
-                dclk = Signal()
-                self.specials += Instance("ODDR2",
-                        i_C0=clk_p, i_C1=clk_n, i_CE=~dac.out.silence,
-                        i_D0=0, i_D1=1, i_R=0, i_S=0, o_Q=dclk)
-                self.specials += Instance("OBUFDS",
-                        i_I=dclk,
-                        o_O=pads.data_clk_p, o_OB=pads.data_clk_n)
-            else:
-                self.comb += pads.clk_p.eq(clk_n), pads.clk_n.eq(clk_p)
-                self.specials += Instance("OBUFDS",
-                        i_I=clk_n,
-                        o_O=pads.data_clk_p, o_OB=pads.data_clk_n)
+            ce = ~dac.out.silence if silence else 1
+            self.specials += Instance("ODDR2",
+                    i_C0=clk_p, i_C1=clk_n, i_CE=ce,
+                    i_D0=0, i_D1=1, i_R=0, i_S=0, o_Q=pads.clk_p)
+            self.specials += Instance("ODDR2",
+                    i_C0=clk_p, i_C1=clk_n, i_CE=ce,
+                    i_D0=1, i_D1=0, i_R=0, i_S=0, o_Q=pads.clk_n)
+            dclk = Signal()
+            self.specials += Instance("ODDR2",
+                    i_C0=clk_p, i_C1=clk_n, i_CE=ce,
+                    i_D0=0, i_D1=1, i_R=0, i_S=0, o_Q=dclk)
+            self.specials += Instance("OBUFDS",
+                    i_I=dclk,
+                    o_O=pads.data_clk_p, o_OB=pads.data_clk_n)
             for i in range(16):
                 self.specials += Instance("OBUFDS",
                         i_I=~dac.out.data[i],
@@ -146,16 +136,15 @@ class TB(Module):
     do_simulation.passive = True
 
 
-def main():
+def _main():
     from migen.fhdl import verilog
     from migen.sim.generic import run_simulation
-    from migen.sim.icarus import Runner
     from matplotlib import pyplot as plt
     import numpy as np
 
     #print(verilog.convert(TB([])))
 
-    import pdq
+    from host import pdq
     pdq.Ftdi = pdq.FileFtdi
 
     t = np.arange(4)*.12e-6
@@ -181,4 +170,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    _main()

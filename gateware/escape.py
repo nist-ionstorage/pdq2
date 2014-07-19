@@ -32,7 +32,8 @@ class Unescaper(Module):
                     ctrl.eq(Cat(1, 0, 0)),
                 ).Else( # 10, command, ob
                     ctrl.eq(Cat(ob.ack, 0, i.stb)),
-                )]
+                )
+        ]
 
 
 data_layout = [("data", 8)]

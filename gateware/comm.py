@@ -7,13 +7,13 @@ from migen.actorlib.sim import SimActor
 from migen.actorlib.structuring import Cast, Pack, pack_layout
 from migen.genlib.fsm import FSM, NextState
 
-from escape import Unescaper
-from ft245r import data_layout, SimFt245r_rx, Ft245r_rx
+from .escape import Unescaper
+from .ft245r import bus_layout, SimFt245r_rx, Ft245r_rx
 
 
 class SimReader(SimActor):
     def __init__(self, data):
-        self.source = Source(data_layout)
+        self.source = Source(bus_layout)
         SimActor.__init__(self, self.data_gen(data))
 
     def data_gen(self, data):
@@ -120,7 +120,7 @@ class Ctrl(Module):
         self.reset = Signal()
         self.trigger = Signal()
         self.arm = Signal()
-        self.sink = Sink(data_layout)
+        self.sink = Sink(bus_layout)
 
         self.sink.ack.reset = 1
 
@@ -168,18 +168,17 @@ class Ctrl(Module):
 
 class Comm(Module):
     def __init__(self, pads, dacs):
-        reader = Ft245r_rx(pads)
-        unescaper = Unescaper(data_layout, 0xa5)
-        pack = Pack(data_layout, 2)
-        cast = Cast(pack_layout(data_layout, 2), mem_layout)
-        memwriter = MemWriter(~pads.adr, dacs) # adr is active low
-        self.ctrl = ctrl = Ctrl(pads, dacs)
-        self.submodules += reader, unescaper, pack, cast, memwriter, ctrl
+        self.submodules.reader = Ft245r_rx(pads)
+        self.submodules.unescaper = Unescaper(bus_layout, 0xa5)
+        self.submodules.pack = Pack(bus_layout, 2)
+        self.submodules.cast = Cast(pack_layout(bus_layout, 2), mem_layout)
+        self.submodules.memwriter = MemWriter(~pads.adr, dacs) # adr active low
+        self.submodules.ctrl = Ctrl(pads, dacs)
 
         self.comb += [
-                unescaper.sink.connect(reader.source),
-                pack.sink.connect(unescaper.source_a),
-                cast.sink.connect(pack.source),
-                memwriter.sink.connect(cast.source),
-                ctrl.sink.connect(unescaper.source_b),
+                self.unescaper.sink.connect(self.reader.source),
+                self.pack.sink.connect(self.unescaper.source_a),
+                self.cast.sink.connect(self.pack.source),
+                self.memwriter.sink.connect(self.cast.source),
+                self.ctrl.sink.connect(self.unescaper.source_b),
         ]
