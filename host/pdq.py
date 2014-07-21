@@ -153,6 +153,7 @@ class Pdq(object):
         spline = interpolate.splrep(t, v, k=order)
         dv = [interpolate.splev(t[:-1], spline, der=i)
                 for i in range(order + 1)]
+        #dv[-1] = interpolate.splev((t[:-1] + t[1:])/2, spline, der=order)
         return dv
 
     def pack_frame(self, *parts_dtypes):
@@ -164,7 +165,6 @@ class Pdq(object):
                 frame.append((part >> 32).astype("<i2"))
             else:
                 frame.append(part.astype("<" + dtype))
-
         frame = np.rec.fromarrays(frame) # interleave
         logger.debug("frame %s dtype %s shape %s length %s",
                 frame, frame.dtype, frame.shape, len(bytes(frame.data)))
@@ -177,8 +177,8 @@ class Pdq(object):
         voltages in volts, times in seconds
         """
         words = [1, 2, 3, 3]
-
         parts = []
+
         head = np.zeros(len(t) - 1, "<u2")
         head[:] |= sum(words[:order + 1]) + 1 # 4b
         #head[:] |= 0<<4 # typ # 2
@@ -209,8 +209,8 @@ class Pdq(object):
     def cordic_frame(self, t, v, p, f, aux=None, shift=0, wait=True,
             end=True, silence=True, stop=True):
         words = [1, 2, 3, 3, 1, 2, 2]
-
         parts = []
+
         head = np.zeros(len(t) - 1, "<u2")
         head[:] |= sum(words) + 1 # 4b
         head[:] |= 1<<4 # typ # 2

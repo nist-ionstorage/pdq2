@@ -15,11 +15,11 @@ line_layout = [
             ("length", 4), # length in shorts
             ("typ", 2), # volt, dds
             ("wait", 1), # wait for trigger before
-            ("silence", 1), # shut down clock during
+            ("silence", 1), # shut down clock
             ("aux", 1), # aux channel value
             ("shift", 4), # time shift
-            ("end", 1), # return to jump table afterwards
-            ("clear", 1), # clear persistent state (phase accu in cordic)
+            ("end", 1), # return to jump table after
+            ("clear", 1), # clear persistent state (phase accu)
             ("reserved", 1),
         ]),
         ("dt", 16),
@@ -243,7 +243,7 @@ class Dds(Module):
 
 
 class Dac(Module):
-    def __init__(self, fifo=8, **kwargs):
+    def __init__(self, fifo=0, **kwargs):
         self.submodules.parser = Parser(**kwargs)
         self.submodules.out = DacOut()
         if fifo:
@@ -312,8 +312,21 @@ def _main():
 
     sp = interpolate.splrep(t, v, k=k)
     tt = np.arange(t[0], t[-1], 1/p.freq)
+
     vv = interpolate.splev(tt, sp)
     plt.plot(tt, vv, ",g")
+
+    vv *= 0
+    ij = np.searchsorted(tt, t)
+    dv = p.interpolate(t*p.freq, v, order=k)
+    for i, tti in enumerate(tt):
+        j = np.searchsorted(t, tti)
+        if tti in t:
+            v = [dvi[j] for dvi in dv]
+        vv[i] = v[0]
+        for k in range(len(v) - 1):
+            v[k] += v[k+1]
+    plt.step(tt + 1/p.freq, vv, "-g")
 
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
