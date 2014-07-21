@@ -56,6 +56,7 @@ class FileFtdi(object):
         self.fil.close()
         del self.fil
 
+
 Ftdi = None
 
 try:
@@ -167,10 +168,10 @@ class Pdq(object):
         frame = np.rec.fromarrays(frame) # interleave
         logger.debug("frame %s dtype %s shape %s length %s",
                 frame, frame.dtype, frame.shape, len(bytes(frame.data)))
-        return frame
+        return bytes(frame.data)
 
-    def frame(self, t, v, order=3, aux=None,
-            shift=0, wait=True, end=True, silence=False):
+    def frame(self, t, v, order=3, aux=None, shift=0, wait=True, end=True,
+            silence=False, stop=True):
         """
         serialize frame data
         voltages in volts, times in seconds
@@ -186,7 +187,7 @@ class Pdq(object):
         if aux is not None:
             head[:] |= aux[:len(head)]<<8 # 1
         head[:] |= shift<<9 # 4
-        head[-1] |= end<<13 # 1
+        head[-1] |= (not stop and end)<<13 # 1
         #head[0] |= 0<<14 # clear # 1
         #head[:] |= 0<<15 # reserved 2
         parts.append((head, "u2"))
@@ -197,10 +198,16 @@ class Pdq(object):
         v = np.clip(v/self.max_out, -1, 1)
         for dv, w in zip(self.interpolate(t, v, order, shift), words):
             parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
-        return self.pack_frame(*parts)
+        
+        frame = self.pack_frame(*parts)
 
-    def cordic_frame(self, t, v, p, f, aux=None,
-            shift=0, wait=True, end=True, silence=True):
+        if stop:
+            frame += struct.pack("<HHH", (2<<0) | (silence<<7) | (end<<13),
+                    1, int(v[-1]*2**15))
+        return frame
+
+    def cordic_frame(self, t, v, p, f, aux=None, shift=0, wait=True,
+            end=True, silence=True, stop=True):
         words = [1, 2, 3, 3, 1, 2, 2]
 
         parts = []
@@ -212,7 +219,7 @@ class Pdq(object):
         if aux is not None:
             head[:] |= aux[:len(head)]<<8 # 1
         head[:] |= shift<<9 # 4
-        head[-1] |= end<<13 # 1
+        head[-1] |= (not stop and end)<<13 # 1
         head[0] |= 1<<14 # clear # 1
         #head[:] |= 0<<15 # reserved # 1
         parts.append((head, "u2"))
@@ -231,8 +238,15 @@ class Pdq(object):
         f = f/self.freq
         for dv, w in zip(self.interpolate(t, f, 1, shift), [2, 2]):
             parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
-        print(parts)
-        return self.pack_frame(*parts)
+
+        frame = self.pack_frame(*parts)
+
+        if stop:
+            frame += struct.pack("<HH HIIHIH HII", (2<<0) | (1<<4) |
+                    (silence<<7) | (end<<13),
+                    1, int(v[-1]*2**15), 0, 0, 0, 0, 0,
+                    int(p[-1]*2**16), int(f[-1]*2**31), 0)
+        return frame
 
     def map_frames(self, frames, map=None):
         table = []
@@ -260,8 +274,7 @@ class Pdq(object):
         return head + data
 
     def multi_frame(self, times_voltages, channel, map=None, **kwargs):
-        frames = [bytes(self.frame(t, v, **kwargs).data)
-            for t, v in times_voltages]
+        frames = [self.frame(t, v, **kwargs) for t, v in times_voltages]
         data = self.map_frames(frames, map)
         board, dac = divmod(channel, self.num_dacs)
         data = self.add_mem_header(board, dac, data)

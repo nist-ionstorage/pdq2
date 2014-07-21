@@ -209,7 +209,8 @@ class Dds(Module):
 
         ###
 
-        self.submodules.cordic = Cordic(width=16, eval_mode="pipelined")
+        self.submodules.cordic = Cordic(width=16, eval_mode="pipelined",
+                guard=None)
 
         zi = Signal(32)
         z = [Signal(32) for i in range(3)] # phase, dphase, ddphase
@@ -296,17 +297,16 @@ def _main():
 
     #print(verilog.convert(Dac()))
 
-    t = np.arange(0, 11) * .12e-6
-    v = 8*(1-np.cos(t/t[-1]*2*np.pi))/2
+    t = np.arange(0, 11) * .2e-6
+    v = 9*(1-np.cos(t/t[-1]*2*np.pi))/2
     p = pdq.Pdq()
     k = 3
-    f = [
+    mem = p.map_frames([b"".join([
             p.frame(t, v, order=k, end=False),
             p.cordic_frame(t, v, 0*t, 1e6+20e6*t/t[-1], wait=False)
-    ]
-    mem = p.map_frames([b"".join(bytes(_.data) for _ in f)])
+    ])])
     tb = TB(list(np.fromstring(mem, "<u2")))
-    run_simulation(tb, ncycles=400, vcd_name="dac.vcd")
+    run_simulation(tb, ncycles=500, vcd_name="dac.vcd")
 
     plt.plot(t, v, "xk")
 
@@ -317,7 +317,7 @@ def _main():
 
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
-    plt.plot(tim - 23/p.freq, out, "-r")
+    plt.step(tim - 22/p.freq, out, "-r")
     plt.show()
 
 
