@@ -147,7 +147,7 @@ class Pdq(object):
         return times, derivatives
 
     def frame(self, times, voltages, order=3, aux=None,
-            time_shift=0, wait=True, end=True):
+            time_shift=0, wait=True, end=True, silence=False):
         """
         serialize frame data
         voltages in volts, times in seconds,
@@ -165,7 +165,7 @@ class Pdq(object):
         head[:] |= line_len<<0 # 4
         head[:] |= 0<<4 # typ # 2
         head[0] |= wait<<6 # 1
-        head[-1] |= 0<<7 # silence # 1
+        head[-1] |= silence<<7 # 1
         if aux is not None:
             head[:] |= aux[:length]<<8 # 1
         head[:] |= time_shift<<9 # 4
