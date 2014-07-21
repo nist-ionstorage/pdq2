@@ -81,7 +81,7 @@ class Pdq(object):
     """
     max_val = 1<<15 # signed 16 bit DAC
     max_out = 10.
-    scale = max_val/max_out # LSB/V
+    scale = 1/max_out # LSB/V
     freq = 100e6 # samples/s
     min_time = 12 # processing time for a order=4 point
     max_time = 1<<16 # unsigned 16 bit timer
@@ -89,6 +89,9 @@ class Pdq(object):
     num_frames = 8
     max_data = 4*(1<<10) # 8kx16 8kx16 4kx16
     escape_char = b"\xa5"
+    cordic_gain = 1.
+    for i in range(16):
+        cordic_gain *= np.sqrt(1 + 2**(-2*i))
 
     commands = {
             "RESET_EN":    b"\x00",
@@ -128,69 +131,108 @@ class Pdq(object):
     def write_data(self, *segments):
         return self.write(*(self.escape(seg) for seg in segments))
 
-    def interpolate(self, times, voltages, order, shift=0):
+    def line_times(self, t, shift=0):
+        scale = self.freq/2**shift
+        tr = np.rint(t*scale)
+        dt = np.diff(tr)
+        # FIXME: clipped intervals cumulatively skew subsequent ones
+        #np.clip(times, self.min_time, self.max_time, out=times)
+        assert np.all(dt >= 12), dt
+        return tr, dt
+
+    def interpolate(self, t, v, order, shift=0):
         """
         calculate spline interpolation derivatives for data
         according to interpolation order
         also differentiates times (implicitly shifts to 0) and removes
-        the last voltage (irrelevant since the frame ends here)
+        the last value (irrelevant since the frame ends here)
         """
-        times = times*(self.freq/(1<<shift))
-        spline = interpolate.splrep(times, voltages, k=order)
-        times = np.rint(times)
-        derivatives = [interpolate.splev(times[:-1], spline, der=i)
+        if order == 0:
+            return [np.rint(v[:-1])]
+        spline = interpolate.splrep(t, v, k=order)
+        dv = [interpolate.splev(t[:-1], spline, der=i)
                 for i in range(order + 1)]
-        times = np.diff(times)
-        # FIXME: clipped intervals cumulatively skew subsequent ones
-        #np.clip(times, self.min_time, self.max_time, out=times)
-        assert np.all(times > 0), times
-        return times, derivatives
+        return dv
 
-    def frame(self, times, voltages, order=3, aux=None,
-            time_shift=0, wait=True, end=True):
-        """
-        serialize frame data
-        voltages in volts, times in seconds,
-        """
-        voltages = np.clip(voltages, -self.max_val, self.max_val)*self.scale
-        times, derivatives = self.interpolate(times, voltages,
-                order, time_shift)
-        words = [1, 2, 3, 3]
-        line_len = sum(words[:len(derivatives)]) + 1 # dt
-        length = len(times)
-
+    def pack_frame(self, *parts_dtypes):
         frame = []
-
-        head = np.zeros(length, "<u2")
-        head[:] |= line_len<<0 # 4
-        head[:] |= 0<<4 # typ # 2
-        head[0] |= wait<<6 # 1
-        head[-1] |= 0<<7 # silence # 1
-        if aux is not None:
-            head[:] |= aux[:length]<<8 # 1
-        head[:] |= time_shift<<9 # 4
-        head[-1] |= end<<13 # 1
-        head[:] |= 0<<14 # reserved 2
-        frame.append(head)
-
-        frame.append(times.astype("<u2"))
-
-        for i, (v, word) in enumerate(zip(derivatives, words)):
-            scale = 1 << (16*(word - 1))
-            v = np.rint(scale*v).astype("<i8")
-            if word == 3: # no i6 dtype
-                frame.append(v.astype("<i4"))
-                frame.append((v >> 32).astype("<i%i" % (word*2 - 4)))
+        for part, dtype in parts_dtypes:
+            if dtype == "i6":
+                part = part.astype("<i8")
+                frame.append(part.astype("<i4"))
+                frame.append((part >> 32).astype("<i2"))
             else:
-                frame.append(v.astype("<i%i" % (word*2)))
+                frame.append(part.astype("<" + dtype))
 
         frame = np.rec.fromarrays(frame) # interleave
-        data_length = len(bytes(frame.data))
         logger.debug("frame %s dtype %s shape %s length %s",
-                frame, frame.dtype, frame.shape, data_length)
-        assert data_length == 2*(1 + line_len)*length, (data_length, length,
-                line_len, frame.shape)
+                frame, frame.dtype, frame.shape, len(bytes(frame.data)))
         return frame
+
+    def frame(self, t, v, order=3, aux=None,
+            shift=0, wait=True, end=True):
+        """
+        serialize frame data
+        voltages in volts, times in seconds
+        """
+        words = [1, 2, 3, 3]
+
+        parts = []
+        head = np.zeros(len(t) - 1, "<u2")
+        head[:] |= sum(words[:order + 1]) + 1 # 4b
+        #head[:] |= 0<<4 # typ # 2
+        head[0] |= wait<<6 # 1
+        #head[-1] |= 0<<7 # silence # 1
+        if aux is not None:
+            head[:] |= aux[:len(head)]<<8 # 1
+        head[:] |= shift<<9 # 4
+        head[-1] |= end<<13 # 1
+        #head[0] |= 0<<14 # clear # 1
+        #head[:] |= 0<<15 # reserved 2
+        parts.append((head, "u2"))
+
+        t, dt = self.line_times(t, shift)
+        parts.append((dt, "u2"))
+
+        v = np.clip(v/self.max_out, -1, 1)
+        for dv, w in zip(self.interpolate(t, v, order, shift), words):
+            parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
+        return self.pack_frame(*parts)
+
+    def cordic_frame(self, t, v, p, f, aux=None,
+            shift=0, wait=True, end=True):
+        words = [1, 2, 3, 3, 1, 2, 2]
+
+        parts = []
+        head = np.zeros(len(t) - 1, "<u2")
+        head[:] |= sum(words) + 1 # 4b
+        head[:] |= 1<<4 # typ # 2
+        head[0] |= wait<<6 # 1
+        #head[-1] |= 0<<7 # silence # 1
+        if aux is not None:
+            head[:] |= aux[:len(head)]<<8 # 1
+        head[:] |= shift<<9 # 4
+        head[-1] |= end<<13 # 1
+        head[0] |= 1<<14 # clear # 1
+        #head[:] |= 0<<15 # reserved # 1
+        parts.append((head, "u2"))
+
+        t, dt = self.line_times(t, shift)
+        parts.append((dt, "u2"))
+
+        v = np.clip(v/self.max_out, -1, 1)/self.cordic_gain
+        for dv, w in zip(self.interpolate(t, v, 3, shift), words):
+            parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
+
+        p = p/(2*np.pi)
+        for dv, w in zip(self.interpolate(t, p, 0, 0), [1]):
+            parts.append((np.rint(dv*(2**(16*w))), "i%i" % (2*w)))
+
+        f = f/self.freq
+        for dv, w in zip(self.interpolate(t, f, 1, shift), [2, 2]):
+            parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
+        print(parts)
+        return self.pack_frame(*parts)
 
     def map_frames(self, frames, map=None):
         table = []

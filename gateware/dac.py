@@ -19,7 +19,8 @@ line_layout = [
             ("aux", 1), # aux channel value
             ("shift", 4), # time shift
             ("end", 1), # return to jump table afterwards
-            ("reserved", 2),
+            ("clear", 1), # clear persistent state (phase accu in cordic)
+            ("reserved", 1),
         ]),
         ("dt", 16),
         ("data", 14*16),
@@ -153,8 +154,8 @@ class DacOut(Module):
         ]
 
         subs = [
-                Volt(lp.data, stb & (lp.header.typ == 0), inc),
-                Dds(lp.data, stb & (lp.header.typ == 1), inc),
+                Volt(lp, stb & (lp.header.typ == 0), inc),
+                Dds(lp, stb & (lp.header.typ == 1), inc),
         ]
 
         for i, sub in enumerate(subs):
@@ -180,7 +181,7 @@ class DacOut(Module):
 
 
 class Volt(Module):
-    def __init__(self, data, stb, inc):
+    def __init__(self, line, stb, inc):
         self.data = Signal(16)
 
         ###
@@ -197,13 +198,13 @@ class Volt(Module):
                 If(stb,
                     v[0].eq(0),
                     v[1].eq(0),
-                    Cat(v[0][32:], v[1][16:], v[2], v[3]).eq(data),
+                    Cat(v[0][32:], v[1][16:], v[2], v[3]).eq(line.data),
                 )
         ]
 
 
 class Dds(Module):
-    def __init__(self, data, stb, inc):
+    def __init__(self, line, stb, inc):
         self.data = Signal(16)
 
         ###
@@ -232,10 +233,10 @@ class Dds(Module):
                     x[0].eq(0),
                     x[1].eq(0),
                     Cat(x[0][32:], x[1][16:], x[2], x[3], z[0][16:], z[1], z[2]
-                        ).eq(data),
-                    If(data[16 + 32 + 48 + 48 + 16 + 32 - 1], # clear phase
+                        ).eq(line.data),
+                    If(line.header.clear,
                         zi.eq(0),
-                    ),
+                    )
                 )
         ]
 
@@ -270,9 +271,9 @@ class TB(Module):
             selfp.dac.out.trigger = 1
         elif selfp.simulator.cycle_counter == 21:
             selfp.dac.out.trigger = 0
-        elif selfp.simulator.cycle_counter == 100:
+        elif selfp.simulator.cycle_counter == 200:
             selfp.dac.out.trigger = 1
-        elif selfp.simulator.cycle_counter == 101:
+        elif selfp.simulator.cycle_counter == 201:
             selfp.dac.out.trigger = 0
         #if selfp.simulator.cycle_counter == 200:
         #    self.dac.parser.frame = 0
@@ -295,19 +296,23 @@ def _main():
 
     #print(verilog.convert(Dac()))
 
-    t = np.arange(0, 6) * .12e-6
-    v = 9*(1-np.cos(t/t[-1]*np.pi))/2
+    t = np.arange(0, 11) * .12e-6
+    v = 8*(1-np.cos(t/t[-1]*2*np.pi))/2
     p = pdq.Pdq()
     k = 3
-    mem = p.map_frames([bytes(p.frame(t, v, order=k).data)])
+    f = [
+            p.frame(t, v, order=k, end=False),
+            p.cordic_frame(t, v, 0*t, 1e6+20e6*t/t[-1], wait=False)
+    ]
+    mem = p.map_frames([b"".join(bytes(_.data) for _ in f)])
     tb = TB(list(np.fromstring(mem, "<u2")))
-    run_simulation(tb, ncycles=200, vcd_name="dac.vcd")
+    run_simulation(tb, ncycles=400, vcd_name="dac.vcd")
 
     plt.plot(t, v, "xk")
 
-    sp = interpolate.splrep(t, v, k=k-1)
+    sp = interpolate.splrep(t, v, k=k)
     tt = np.arange(t[0], t[-1], 1/p.freq)
-    vv = interpolate.splev(tt, sp, der=0)
+    vv = interpolate.splev(tt, sp)
     plt.plot(tt, vv, ",g")
 
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
