@@ -134,14 +134,15 @@ class Pdq(object):
 
     def line_times(self, t, shift=0):
         scale = self.freq/2**shift
-        tr = np.rint(t*scale)
+        t = t*scale
+        tr = np.rint(t)
         dt = np.diff(tr)
         # FIXME: clipped intervals cumulatively skew subsequent ones
         #np.clip(times, self.min_time, self.max_time, out=times)
         assert np.all(dt >= 12), dt
-        return tr, dt
+        return t, tr, dt
 
-    def interpolate(self, t, v, order, shift=0):
+    def interpolate(self, t, v, order, shift=0, tr=None):
         """
         calculate spline interpolation derivatives for data
         according to interpolation order
@@ -149,11 +150,22 @@ class Pdq(object):
         the last value (irrelevant since the frame ends here)
         """
         if order == 0:
-            return [np.rint(v[:-1])]
+            return [v[:-1]]
         spline = interpolate.splrep(t, v, k=order)
-        dv = [interpolate.splev(t[:-1], spline, der=i)
+        if tr is None:
+            tr = t
+        dv = [interpolate.splev(tr[:-1], spline, der=i)
                 for i in range(order + 1)]
-        #dv[-1] = interpolate.splev((t[:-1] + t[1:])/2, spline, der=order)
+        # correct for adder chain latency
+        correction_map = [
+                (1, -1/2., 2),
+                (1,  1/3., 3),
+                (2,   -1., 3),
+                ]
+        for i, c, j in correction_map:
+            if j >= len(dv):
+                break
+            dv[i] -= c*dv[j]
         return dv
 
     def pack_frame(self, *parts_dtypes):
@@ -192,11 +204,11 @@ class Pdq(object):
         #head[:] |= 0<<15 # reserved 2
         parts.append((head, "u2"))
 
-        t, dt = self.line_times(t, shift)
+        t, tr, dt = self.line_times(t, shift)
         parts.append((dt, "u2"))
 
         v = np.clip(v/self.max_out, -1, 1)
-        for dv, w in zip(self.interpolate(t, v, order, shift), words):
+        for dv, w in zip(self.interpolate(t, v, order, shift, tr), words):
             parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
         
         frame = self.pack_frame(*parts)
@@ -224,19 +236,19 @@ class Pdq(object):
         #head[:] |= 0<<15 # reserved # 1
         parts.append((head, "u2"))
 
-        t, dt = self.line_times(t, shift)
+        t, tr, dt = self.line_times(t, shift)
         parts.append((dt, "u2"))
 
         v = np.clip(v/self.max_out, -1, 1)/self.cordic_gain
-        for dv, w in zip(self.interpolate(t, v, 3, shift), words):
+        for dv, w in zip(self.interpolate(t, v, 3, shift, tr), words):
             parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
 
         p = p/(2*np.pi)
-        for dv, w in zip(self.interpolate(t, p, 0, 0), [1]):
+        for dv, w in zip(self.interpolate(t, p, 0, 0, tr), [1]):
             parts.append((np.rint(dv*(2**(16*w))), "i%i" % (2*w)))
 
         f = f/self.freq
-        for dv, w in zip(self.interpolate(t, f, 1, shift), [2, 2]):
+        for dv, w in zip(self.interpolate(t, f, 1, shift, tr), [2, 2]):
             parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
 
         frame = self.pack_frame(*parts)

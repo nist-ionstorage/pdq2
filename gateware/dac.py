@@ -243,7 +243,7 @@ class Dds(Module):
 
 
 class Dac(Module):
-    def __init__(self, fifo=0, **kwargs):
+    def __init__(self, fifo=8, **kwargs):
         self.submodules.parser = Parser(**kwargs)
         self.submodules.out = DacOut()
         if fifo:
@@ -314,19 +314,25 @@ def _main():
     tt = np.arange(t[0], t[-1], 1/p.freq)
 
     vv = interpolate.splev(tt, sp)
-    plt.plot(tt, vv, ",g")
+    plt.plot(tt, vv, "+g")
 
-    vv *= 0
+    vv1 = 0*vv
+    vv2 = 0*vv
     ij = np.searchsorted(tt, t)
     dv = p.interpolate(t*p.freq, v, order=k)
     for i, tti in enumerate(tt):
-        j = np.searchsorted(t, tti)
         if tti in t:
+            j = np.searchsorted(t, tti)
             v = [dvi[j] for dvi in dv]
-        vv[i] = v[0]
+            k = np.searchsorted(tt, t[j + 1])
+            vv2[i:k] = np.polyval(
+                    [vi/f for f, vi in zip([1, 1, 2, 6], v)][::-1],
+                    (tt[i:k] - tti)*p.freq)
+        vv1[i] = v[0]
         for k in range(len(v) - 1):
             v[k] += v[k+1]
-    plt.step(tt + 1/p.freq, vv, "-g")
+    plt.step(tt + 1/p.freq, vv1, "-g")
+    #plt.step(tt + 1/p.freq, vv2, "-b")
 
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
