@@ -182,25 +182,34 @@ class Pdq(object):
                 frame, frame.dtype, frame.shape, len(bytes(frame.data)))
         return bytes(frame.data)
 
-    def frame(self, t, v, order=3, aux=None, shift=0, wait=True, end=True,
-            silence=False, stop=True):
+    def frame(self, t, v, p=None, f=None,
+            order=3, aux=None, shift=0, wait=True, end=True,
+            silence=False, stop=True, clear=True):
         """
         serialize frame data
         voltages in volts, times in seconds
         """
-        words = [1, 2, 3, 3]
+        words = [1, 2, 3, 3, 1, 2, 2]
+        n = order + 1
+        if f is not None:
+            n += 2
+            if p is None:
+                p = np.zeros_like(f)
+        if p is not None:
+            n += 1
         parts = []
 
         head = np.zeros(len(t) - 1, "<u2")
-        head[:] |= sum(words[:order + 1]) + 1 # 4b
-        #head[:] |= 0<<4 # typ # 2
+        head[:] |= 1 + sum(words[:n]) # 4b
+        if p is not None:
+            head[:] |= 1<<4 # typ # 2
         head[0] |= wait<<6 # 1
-        head[-1] |= silence<<7 # 1
+        head[-1] |= (not stop and silence)<<7 # 1
         if aux is not None:
             head[:] |= aux[:len(head)]<<8 # 1
         head[:] |= shift<<9 # 4
         head[-1] |= (not stop and end)<<13 # 1
-        #head[0] |= 0<<14 # clear # 1
+        head[0] |= clear<<14 # 1
         #head[:] |= 0<<15 # reserved 2
         parts.append((head, "u2"))
 
@@ -208,57 +217,51 @@ class Pdq(object):
         parts.append((dt, "u2"))
 
         v = np.clip(v/self.max_out, -1, 1)
+        if p is not None:
+            v /= self.cordic_gain
         for dv, w in zip(self.interpolate(t, v, order, shift, tr), words):
             parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
-        
-        frame = self.pack_frame(*parts)
 
-        if stop:
-            frame += struct.pack("<HHH", (2<<0) | (silence<<7) | (end<<13),
-                    1, int(v[-1]*2**15))
-        return frame
+        if p is not None:
+            p = p/(2*np.pi)
+            for dv, w in zip(self.interpolate(t, p, 0, 0, tr), [1]):
+                parts.append((np.rint(dv*(2**(16*w))), "i%i" % (2*w)))
 
-    def cordic_frame(self, t, v, p, f, aux=None, shift=0, wait=True,
-            end=True, silence=True, stop=True):
-        words = [1, 2, 3, 3, 1, 2, 2]
-        parts = []
-
-        head = np.zeros(len(t) - 1, "<u2")
-        head[:] |= sum(words) + 1 # 4b
-        head[:] |= 1<<4 # typ # 2
-        head[0] |= wait<<6 # 1
-        head[-1] |= silence<<7 # 1
-        if aux is not None:
-            head[:] |= aux[:len(head)]<<8 # 1
-        head[:] |= shift<<9 # 4
-        head[-1] |= (not stop and end)<<13 # 1
-        head[0] |= 1<<14 # clear # 1
-        #head[:] |= 0<<15 # reserved # 1
-        parts.append((head, "u2"))
-
-        t, tr, dt = self.line_times(t, shift)
-        parts.append((dt, "u2"))
-
-        v = np.clip(v/self.max_out, -1, 1)/self.cordic_gain
-        for dv, w in zip(self.interpolate(t, v, 3, shift, tr), words):
-            parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
-
-        p = p/(2*np.pi)
-        for dv, w in zip(self.interpolate(t, p, 0, 0, tr), [1]):
-            parts.append((np.rint(dv*(2**(16*w))), "i%i" % (2*w)))
-
-        f = f/self.freq
-        for dv, w in zip(self.interpolate(t, f, 1, shift, tr), [2, 2]):
-            parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
+        if f is not None:
+            f = f/self.freq
+            for dv, w in zip(self.interpolate(t, f, 1, shift, tr), [2, 2]):
+                parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
 
         frame = self.pack_frame(*parts)
 
         if stop:
-            frame += struct.pack("<HH HIIHIH HII", (2<<0) | (1<<4) |
-                    (silence<<7) | (end<<13),
-                    1, int(v[-1]*2**15), 0, 0, 0, 0, 0,
-                    int(p[-1]*2**16), int(f[-1]*2**31), 0)
+            if p is not None:
+                frame += struct.pack("<HH hiihih h ii", (15<<0) | (1<<4) |
+                        (silence<<7) | (end<<13),
+                        1, int(v[-1]*2**15), 0, 0, 0, 0, 0,
+                        int(p[-1]*2**16), int(f[-1]*2**31), 0)
+            else:
+                frame += struct.pack("<HH h", (2<<0) |
+                        (silence<<7) | (end<<13),
+                        1, int(v[-1]*2**15))
         return frame
+
+    def line(self, dt, v=(), a=(), p=(), f=(), typ=0,
+            silence=False, end=False, wait=False, aux=False,
+            clear=False):
+        raise NotImplementedError
+        fmt = "<HH"
+        parts = [0, int(round(dt*self.freq))]
+        for vi, wi in zip(v, [1, 2, 3, 3]):
+            vi = int(round(vi*(2**(16*w - 1))))
+            if wi == 3:
+                fmt += "Ih"
+                parts += [vi & 0xffffffff, vi >> 32]
+            else:
+                fmt += "bih"[wi]
+                parts += [vi]
+        if p is not None:
+            typ = 1
 
     def map_frames(self, frames, map=None):
         table = []

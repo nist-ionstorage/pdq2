@@ -218,7 +218,7 @@ class Dds(Module):
         self.comb += [
                 self.cordic.xi.eq(x[0][32:]),
                 self.cordic.yi.eq(0),
-                self.cordic.zi.eq(zi[16:] + z[0][16:]),
+                self.cordic.zi.eq((zi + z[0])[16:]),
                 self.data.eq(self.cordic.xo),
                 ]
         self.sync += [
@@ -303,7 +303,7 @@ def _main():
     k = 3
     mem = p.map_frames([b"".join([
             p.frame(t, v, order=k, end=False),
-            p.cordic_frame(t, v, 0*t, 1e6+20e6*t/t[-1], wait=False)
+            p.frame(t, v, 0*t, 30e6*t/t[-1], wait=False)
     ])])
     tb = TB(list(np.fromstring(mem, "<u2")))
     run_simulation(tb, ncycles=500, vcd_name="dac.vcd")
