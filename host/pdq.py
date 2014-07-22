@@ -225,7 +225,7 @@ class Pdq(object):
         if p is not None:
             p = p/(2*np.pi)
             for dv, w in zip(self.interpolate(t, p, 0, 0, tr), [1]):
-                parts.append((np.rint(dv*(2**(16*w))), "i%i" % (2*w)))
+                parts.append((np.rint(dv*(2**(16*w))), "u%i" % (2*w)))
 
         if f is not None:
             f = f/self.freq
@@ -236,7 +236,7 @@ class Pdq(object):
 
         if stop:
             if p is not None:
-                frame += struct.pack("<HH hiihih h ii", (15<<0) | (1<<4) |
+                frame += struct.pack("<HH hiihih H ii", (15<<0) | (1<<4) |
                         (silence<<7) | (end<<13),
                         1, int(v[-1]*2**15), 0, 0, 0, 0, 0,
                         int(p[-1]*2**16), int(f[-1]*2**31), 0)
@@ -358,10 +358,17 @@ def main():
         dev.write_cmd("ARM_DIS")
     if args.channel is None:
         for channel in range(9):
-            tv = [(times, .1*frame + channel + voltages)
-                    for frame in range(dev.num_frames)]
-            dev.write_data(dev.multi_frame(tv, channel=channel,
-                                           order=args.order))
+            f = []
+            for frame in range(dev.num_frames):
+                vi = .1*frame + channel + voltages
+                pi = 2*np.pi*(.01*frame + .1*channel + 0*voltages)
+                fi = 30e6*times/times[-1]
+                f.append(b"".join([
+                    dev.frame(times, vi, order=args.order, end=False),
+                    dev.frame(times, voltages, pi, fi, wait=False),
+                    ]))
+            board, dac = divmod(channel, dev.num_dacs)
+            dev.write_data(dev.add_mem_header(board, dac, dev.map_frames(f)))
     else:
         tv = [(times, voltages)]
         map = [0] * dev.num_frames
