@@ -243,7 +243,7 @@ class Dds(Module):
 
 
 class Dac(Module):
-    def __init__(self, fifo=8, **kwargs):
+    def __init__(self, fifo=0, **kwargs):
         self.submodules.parser = Parser(**kwargs)
         self.submodules.out = DacOut()
         if fifo:
@@ -267,17 +267,10 @@ class TB(Module):
         self.outputs.append(selfp.dac.out.data)
         if selfp.simulator.cycle_counter == 5:
             selfp.dac.parser.arm = 1
-        #    selfp.dac.parser.frame = 0
         elif selfp.simulator.cycle_counter == 20:
             selfp.dac.out.trigger = 1
         elif selfp.simulator.cycle_counter == 21:
             selfp.dac.out.trigger = 0
-        elif selfp.simulator.cycle_counter == 200:
-            selfp.dac.out.trigger = 1
-        elif selfp.simulator.cycle_counter == 201:
-            selfp.dac.out.trigger = 0
-        #if selfp.simulator.cycle_counter == 200:
-        #    self.dac.parser.frame = 0
         if (selfp.dac.out.sink.ack and
                 selfp.dac.out.sink.stb):
             print("cycle {} data {}".format(
@@ -297,7 +290,7 @@ def _main():
 
     #print(verilog.convert(Dac()))
 
-    t = np.arange(0, 11) * .2e-6
+    t = np.arange(0, 5) * .2e-6
     v = 9*(1-np.cos(t/t[-1]*2*np.pi))/2
     p = pdq.Pdq()
     k = 3
@@ -306,7 +299,7 @@ def _main():
             p.frame(t, v, 0*t, 30e6*t/t[-1], wait=False)
     ])])
     tb = TB(list(np.fromstring(mem, "<u2")))
-    run_simulation(tb, ncycles=500, vcd_name="dac.vcd")
+    run_simulation(tb, ncycles=250, vcd_name="dac.vcd")
 
     plt.plot(t, v, "xk")
 

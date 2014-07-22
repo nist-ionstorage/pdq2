@@ -118,7 +118,7 @@ class TB(Module):
         self.pads.adr.reset = 15
         if mem is not None:
             #reader = SimReader(mem)
-            simin = SimFt245r_rx(self.pads, mem)
+            simin = SimFt245r_rx(self.pads, list(mem))
             self.submodules += simin
         dacs = [InsertReset(Dac()) for i in range(3)]
         self.submodules.comm = InsertReset(Comm(self.pads, dacs), ["sys"])

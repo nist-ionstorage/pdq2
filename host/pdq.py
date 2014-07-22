@@ -11,7 +11,7 @@ import warnings
 logger = logging.getLogger("Pdq")
 
 
-class PyFtdi(object):
+class PyFtdi:
     def __init__(self, serial=None):
         self.dev = pylibftdi.Device(device_id=serial)
 
@@ -27,7 +27,7 @@ class PyFtdi(object):
         del self.dev
 
 
-class D2xxFtdi(object):
+class D2xxFtdi:
     def __init__(self, serial=None):
         if serial is not None:
             self.dev = ftd2xx.openEx(serial)
@@ -44,7 +44,7 @@ class D2xxFtdi(object):
         del self.dev
 
 
-class FileFtdi(object):
+class FileFtdi:
     def __init__(self, serial="unknown"):
         self.fil = open("pdq_%s_ftdi.bin" % serial, "wb")
 
@@ -56,6 +56,22 @@ class FileFtdi(object):
         self.fil.close()
         del self.fil
 
+
+class SimFtdi:
+    def __init__(self, serial=None):
+        self.buffer = b""
+
+    def write(self, data):
+        self.buffer += data
+        return len(data)
+
+    def close(self):
+        tb = pdq.TB(self.buffer)
+        run_simulation(tb, vcd_name="pdq.vcd", ncycles=5000)
+        out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
+        tim = np.arange(out.shape[0])/100e6
+        plt.plot(tim, out)
+        plt.show()
 
 Ftdi = None
 
@@ -71,12 +87,20 @@ try:
 except ImportError:
     pass
 
+try:
+    from gateware import pdq
+    from migen.sim.generic import run_simulation
+    from matplotlib import pyplot as plt
+    Ftdi = SimFtdi
+except ImportError:
+    pass
+
 if Ftdi is None:
     Ftdi = FileFtdi
     warnings.warn("no ftdi library found. writing to files")
 
 
-class Pdq(object):
+class Pdq:
     """
     PDQ DAC (a.k.a. QC_Waveform)
     """
@@ -296,7 +320,7 @@ class Pdq(object):
         return data
 
 
-def main():
+def _main():
     import argparse
     import time
 
@@ -305,23 +329,27 @@ def main():
             them.""")
     parser.add_argument("-s", "--serial", default=None,
             help="device (FT245R) serial string [first]")
-    parser.add_argument("-c", "--channel", default=None, type=int,
+    parser.add_argument("-c", "--channel", default=0, type=int,
             help="channel: 3*board_num+dac_num [%(default)s]")
-    parser.add_argument("-f", "--free", default=False,
+    parser.add_argument("-f", "--frame", default=0, type=int,
+            help="frame [%(default)s]")
+    parser.add_argument("-e", "--free", default=False,
             action="store_true",
             help="software trigger [%(default)s]")
     parser.add_argument("-n", "--disarm", default=False,
             action="store_true",
             help="disarm group [%(default)s]")
     parser.add_argument("-t", "--times",
-            default="np.linspace(0, 1e-3, 11)",
+            default="np.arange(5)*.2e-6",
             help="sample times (s) [%(default)s]")
     parser.add_argument("-v", "--voltages",
-            default="(1-np.cos(t/t[-1]*np.pi))/2",
+            default="(1-np.cos(t/t[-1]*2*np.pi))/2",
             help="sample voltages (V) [%(default)s]")
     parser.add_argument("-o", "--order", default=3, type=int,
             help="interpolation (0: const, 1: lin, 2: quad, 3: cubic)"
                  " [%(default)s]")
+    parser.add_argument("-x", "--demo", default=False, action="store_true",
+            help="demo mode: half sine and chirped [%(default)s]")
     parser.add_argument("-p", "--plot", help="plot to file [%(default)s]")
     parser.add_argument("-d", "--debug", default=False,
             action="store_true", help="debug communications")
@@ -356,10 +384,13 @@ def main():
         time.sleep(.1)
     else:
         dev.write_cmd("ARM_DIS")
-    if args.channel is None:
-        for channel in range(9):
+
+    if args.demo:
+        channels = [args.channel] if args.channel >= 0 else range(9)
+        frames = [args.frame] if args.frame >= 0 else range(dev.num_frames)
+        for channel in channels:
             f = []
-            for frame in range(dev.num_frames):
+            for frame in frames:
                 vi = .1*frame + channel + voltages
                 pi = 2*np.pi*(.01*frame + .1*channel + 0*voltages)
                 fi = 30e6*times/times[-1]
@@ -371,14 +402,16 @@ def main():
             dev.write_data(dev.add_mem_header(board, dac, dev.map_frames(f)))
     else:
         tv = [(times, voltages)]
-        map = [0] * dev.num_frames
+        map = [None] * dev.num_frames
+        map[args.frame] = 0
         dev.write_data(dev.multi_frame(tv, channel=args.channel,
                                        order=args.order, map=map))
     if not args.disarm:
         dev.write_cmd("ARM_EN")
     if args.free:
         dev.write_cmd("TRIGGER_EN")
+    dev.close()
 
 
 if __name__ == "__main__":
-    main()
+    _main()
