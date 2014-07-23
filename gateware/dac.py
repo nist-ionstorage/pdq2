@@ -212,17 +212,17 @@ class Dds(Module):
         self.submodules.cordic = Cordic(width=16, eval_mode="pipelined",
                 guard=None)
 
-        zi = Signal(32)
+        za = Signal(32)
         z = [Signal(32) for i in range(3)] # phase, dphase, ddphase
         x = [Signal(48) for i in range(4)] # amp, damp, ddamp, dddamp
         self.comb += [
                 self.cordic.xi.eq(x[0][32:]),
                 self.cordic.yi.eq(0),
-                self.cordic.zi.eq((zi + z[0])[16:]),
+                self.cordic.zi.eq(za[16:] + z[0][16:]),
                 self.data.eq(self.cordic.xo),
                 ]
         self.sync += [
-                zi.eq(zi + z[1]),
+                za.eq(za + z[1]),
                 If(inc,
                     x[0].eq(x[0] + x[1]),
                     x[1].eq(x[1] + x[2]),
@@ -230,13 +230,12 @@ class Dds(Module):
                     z[1].eq(z[1] + z[2]),
                 ),
                 If(stb,
-                    z[0].eq(0),
                     x[0].eq(0),
                     x[1].eq(0),
                     Cat(x[0][32:], x[1][16:], x[2], x[3], z[0][16:], z[1], z[2]
                         ).eq(line.data),
                     If(line.header.clear,
-                        zi.eq(0),
+                        za.eq(0),
                     )
                 )
         ]
