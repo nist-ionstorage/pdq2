@@ -386,8 +386,10 @@ def _main():
         dev.write_cmd("ARM_DIS")
 
     if args.demo:
-        channels = [args.channel] if args.channel >= 0 else range(9)
-        frames = [args.frame] if args.frame >= 0 else range(dev.num_frames)
+        channels = [args.channel] if args.channel < 9 \
+            else range(9)
+        frames = [args.frame] if args.frame < dev.num_frames \
+            else range(dev.num_frames)
         for channel in channels:
             f = []
             for frame in frames:
