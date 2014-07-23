@@ -40,8 +40,8 @@ class Pdq(Module):
                     p_CLKFX_MULTIPLY=2,
                     p_CLKIN_DIVIDE_BY_2="FALSE",
                     p_CLKIN_PERIOD=clkin_period,
-                    p_CLK_FEEDBACK="2X",
-                    #p_CLK_FEEDBACK="NONE",
+                    #p_CLK_FEEDBACK="2X",
+                    p_CLK_FEEDBACK="NONE",
                     p_DLL_FREQUENCY_MODE="LOW",
                     p_DFS_FREQUENCY_MODE="LOW",
                     p_STARTUP_WAIT="TRUE",
@@ -54,11 +54,12 @@ class Pdq(Module):
                     i_PSCLK=0,
                     i_CLKIN=clkin_sdr,
                     o_LOCKED=dcm_locked,
-                    o_CLK2X=dcm_clk2x,
-                    o_CLK2X180=dcm_clk2x180,
-                    #o_CLKFX=dcm_clk2x,
-                    #o_CLKFX180=dcm_clk2x180,
-                    i_CLKFB=clk_p,
+                    #o_CLK2X=dcm_clk2x,
+                    #o_CLK2X180=dcm_clk2x180,
+                    o_CLKFX=dcm_clk2x,
+                    o_CLKFX180=dcm_clk2x180,
+                    #i_CLKFB=clk_p,
+                    i_CLKFB=0,
                     )
             self.specials += Instance("BUFG", i_I=dcm_clk2x, o_O=clk_p)
             self.specials += Instance("BUFG", i_I=dcm_clk2x180, o_O=clk_n)
@@ -93,8 +94,12 @@ class Pdq(Module):
                         i_I=~dac.out.data[i],
                         o_O=pads.data_p[i], o_OB=pads.data_n[i])
 
-        self.submodules.comm = Comm(platform.request("comm"), dacs)
-        self.comb += rst.eq(self.comm.ctrl.reset)
+        pads = platform.request("comm")
+        self.submodules.comm = Comm(pads, dacs)
+        self.comb += [
+                rst.eq(self.comm.ctrl.reset),
+                pads.go2_out.eq(dcm_locked)
+        ]
 
 
 class TB(Module):

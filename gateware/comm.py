@@ -141,8 +141,8 @@ class Ctrl(Module):
                 trigger.eq(pads.trigger),
                 pads.aux.eq(
                     Cat(*(dac.out.aux for dac in dacs)) != 0),
-                pads.go2_out.eq(
-                    Cat(*(dac.out.sink.stb for dac in dacs)) != 0),
+                #pads.go2_out.eq(
+                #    Cat(*(dac.out.sink.stb for dac in dacs)) != 0),
                 #pads.go2_out.eq(pads.go2_in), # loop
                 #pads.go2_out.eq(0),
         ]
