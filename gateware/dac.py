@@ -133,7 +133,8 @@ class DacOut(Module):
         lp = self.sink.payload
 
         self.comb += [
-                adv.eq(self.arm & self.sink.stb & (self.trigger | ~lp.header.trigger)),
+                adv.eq(self.arm & self.sink.stb
+                    & (self.trigger | ~lp.header.trigger)),
                 tic.eq(dt_dec == dt_end),
                 toc.eq(dt == line.dt),
                 stb.eq(tic & toc & adv),
@@ -239,84 +240,7 @@ class Dac(Module):
             self.submodules.fifo = SyncFIFO(line_layout, fifo)
             self.comb += [
                     self.fifo.sink.connect(self.parser.source),
-                    self.out.sink.connect(self.fifo.source),
+                    self.out.sink.connect(self.fifo.source)
             ]
         else:
             self.comb += self.out.sink.connect(self.parser.source)
-
-
-class TB(Module):
-    def __init__(self, mem=None):
-        self.submodules.dac = Dac()
-        if mem is not None:
-            self.dac.parser.mem.init = mem
-        self.outputs = []
-
-    def do_simulation(self, selfp):
-        self.outputs.append(selfp.dac.out.data)
-        if selfp.simulator.cycle_counter == 5:
-            selfp.dac.parser.arm = 1
-            selfp.dac.out.arm = 1
-        elif selfp.simulator.cycle_counter == 20:
-            selfp.dac.out.trigger = 1
-        elif selfp.simulator.cycle_counter == 21:
-            selfp.dac.out.trigger = 0
-        if (selfp.dac.out.sink.ack and
-                selfp.dac.out.sink.stb):
-            print("cycle {} data {}".format(
-                selfp.simulator.cycle_counter,
-                selfp.dac.out.data))
-
-
-def _main():
-    from migen.fhdl import verilog
-    from migen.sim.generic import run_simulation
-    from matplotlib import pyplot as plt
-    import numpy as np
-    from scipy import interpolate
-
-    from host import pdq
-    pdq.Ftdi = pdq.FileFtdi
-
-    #print(verilog.convert(Dac()))
-
-    t = np.arange(0, 5) * .2e-6
-    v = 9*(1-np.cos(t/t[-1]*2*np.pi))/2
-    p = pdq.Pdq()
-    p.freq = 100e6
-    k = 3
-    mem = p.map_frames([b"".join([
-            p.frame(t, v, order=k, end=False),
-            p.frame(t, v, 0*t, 20e6*t/t[-1], trigger=False)
-    ])])
-    tb = TB(list(np.fromstring(mem, "<u2")))
-    run_simulation(tb, ncycles=250, vcd_name="dac.vcd")
-
-    plt.plot(t, v, "xk")
-
-    sp = interpolate.splrep(t, v, k=k)
-    tt = np.arange(t[0], t[-1], 1/p.freq)
-
-    vv = interpolate.splev(tt, sp)
-    plt.plot(tt, vv, "+g")
-
-    vv1 = []
-    dv = p.interpolate(t*p.freq, v, order=k)
-    for i, tti in enumerate(tt):
-        if tti in t:
-            j = np.searchsorted(t, tti)
-            v = [dvi[j] for dvi in dv]
-            k = np.searchsorted(tt, t[j + 1])
-        vv1.append(v[0])
-        for k in range(len(v) - 1):
-            v[k] += v[k+1]
-    plt.step(tt + 1/p.freq, vv1, "-g")
-
-    out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
-    tim = np.arange(out.shape[0])/p.freq
-    plt.step(tim - 22/p.freq, out, "-r")
-    plt.show()
-
-
-if __name__ == "__main__":
-    _main()

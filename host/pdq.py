@@ -56,23 +56,6 @@ class FileFtdi:
         self.fil.close()
         del self.fil
 
-
-class SimFtdi:
-    def __init__(self, serial=None):
-        self.buffer = b""
-
-    def write(self, data):
-        self.buffer += data
-        return len(data)
-
-    def close(self):
-        tb = pdq.TB(self.buffer)
-        run_simulation(tb, vcd_name="pdq.vcd", ncycles=5000)
-        out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
-        tim = np.arange(out.shape[0])/100e6
-        plt.plot(tim, out)
-        plt.show()
-
 Ftdi = None
 
 try:
@@ -88,10 +71,8 @@ except ImportError:
     pass
 
 try:
-    from gateware import pdq
-    from migen.sim.generic import run_simulation
-    from matplotlib import pyplot as plt
-    Ftdi = SimFtdi
+    from testbench import pdq
+    Ftdi = pdq.SimFtdi
 except ImportError:
     pass
 

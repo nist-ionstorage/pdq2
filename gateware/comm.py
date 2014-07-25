@@ -2,23 +2,11 @@
 
 from migen.fhdl.std import *
 from migen.flow.actor import Source, Sink
-from migen.flow.transactions import Token
-from migen.actorlib.sim import SimActor
 from migen.actorlib.structuring import Cast, Pack, pack_layout
 from migen.genlib.fsm import FSM, NextState
 
 from .escape import Unescaper
 from .ft245r import bus_layout, Ft245r_rx
-
-
-class SimReader(SimActor):
-    def __init__(self, data):
-        self.source = Source(bus_layout)
-        SimActor.__init__(self, self.data_gen(data))
-
-    def data_gen(self, data):
-        for msg in data:
-            yield Token("data_out", {"data": msg})
 
 
 mem_layout = [("data", 16)]
@@ -43,9 +31,7 @@ class MemWriter(Module):
 
         self.sink.ack.reset = 1
 
-        self.comb += [
-                Array(m.we for m in mems)[dac].eq(we),
-        ]
+        self.comb += Array(m.we for m in mems)[dac].eq(we)
         for mem in mems:
             self.comb += [
                     mem.adr.eq(adr),
@@ -140,8 +126,7 @@ class Ctrl(Module):
         self.sync += [
                 frame.eq(pads.frame),
                 trigger.eq(pads.trigger),
-                pads.aux.eq(
-                    Cat(*(dac.out.aux for dac in dacs)) != 0),
+                pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0),
                 #pads.go2_out.eq(
                 #    Cat(*(dac.out.sink.stb for dac in dacs)) != 0),
                 #pads.go2_out.eq(pads.go2_in), # loop

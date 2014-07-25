@@ -1,14 +1,9 @@
 # Robert Jordens <jordens@gmail.com> 2013
 
-import random
-
 from migen.fhdl.std import *
-from migen.genlib.record import Record
-from migen.flow.actor import Source, Sink
 
 from .dac import Dac
 from .comm import Comm
-from .ft245r import SimFt245r_rx
 
 
 class Pdq(Module):
@@ -104,76 +99,3 @@ class Pdq(Module):
                 pads.go2_out.eq(dcm_locked),
                 dcm_sel.eq(self.comm.ctrl.dcm_sel)
         ]
-
-
-class TB(Module):
-    comm_pads = [
-            ("rxfl", 1),
-            ("rdl", 1),
-            ("rd_in", 1),
-            ("rd_out", 1),
-            ("data", 8),
-            ("adr", 4),
-            ("aux", 1),
-            ("frame", 3),
-            ("trigger", 1),
-            ("reset", 1),
-            ("go2_in", 1),
-            ("go2_out", 1),
-    ]
-
-    def __init__(self, mem=None):
-        self.pads = Record(self.comm_pads)
-        self.pads.adr.reset = 15
-        self.pads.trigger.reset = 1
-        if mem is not None:
-            #reader = SimReader(mem)
-            simin = SimFt245r_rx(self.pads, list(mem))
-            self.submodules += simin
-        dacs = [InsertReset(Dac()) for i in range(3)]
-        self.submodules.comm = InsertReset(Comm(self.pads, dacs), ["sys"])
-        self.comb += self.comm.reset_sys.eq(self.comm.ctrl.reset)
-        for i, dac in enumerate(dacs):
-            setattr(self.submodules, "dac{}".format(i), dac)
-        self.outputs = []
-
-    def do_simulation(self, selfp):
-        self.outputs.append([
-            getattr(selfp, "dac{}".format(i)).out.data for i in range(3)])
-    do_simulation.passive = True
-
-
-def _main():
-    from migen.fhdl import verilog
-    from migen.sim.generic import run_simulation
-    from matplotlib import pyplot as plt
-    import numpy as np
-
-    #print(verilog.convert(TB([])))
-
-    from host import pdq
-    pdq.Ftdi = pdq.FileFtdi
-
-    t = np.arange(4)*.12e-6
-    v = 9*(1-np.cos(t/t[-1]*np.pi))/2
-
-    p = pdq.Pdq()
-    mem = b"\x00" # flush any escape
-    mem += p.cmd("RESET_EN")
-    mem += p.escape(p.multi_frame([(t, v)], channel=2))
-    mem += p.cmd("ARM_EN")
-    mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
-    mem += p.cmd("TRIGGER_EN") + p.cmd("TRIGGER_DIS")
-
-    tb = TB(list(mem))
-
-    run_simulation(tb, vcd_name="pdq.vcd", ncycles=2000)
-    out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
-    tim = np.arange(out.shape[0])/p.freq
-    plt.plot(t, v)
-    plt.plot(tim, out[:, 2])
-    plt.show()
-
-
-if __name__ == "__main__":
-    _main()
