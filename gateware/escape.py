@@ -9,22 +9,27 @@ from migen.flow.network import DataFlowGraph, CompositeActor
 
 
 class Unescaper(Module):
-    # something rare, 0xff and 0x00 are too common, 0xaa is 0b10101010
-    def __init__(self, layout, escape=0xaa):
+    def __init__(self, layout, escape=0xa5):
         self.sink = i = Sink(layout)
-        self.source_a, self.source_b = oa, ob = Source(layout), Source(layout)
-        self.comb += oa.payload.eq(i.payload), ob.payload.eq(i.payload)
-
+        self.source_a = oa = Source(layout)
+        self.source_b = ob = Source(layout)
         self.busy = Signal()
-        self.comb += self.busy.eq(0)
+
+        ###
 
         is_escape = Signal()
-
         was_escape = Signal()
-        self.sync += If(i.ack & i.stb, was_escape.eq(is_escape & ~was_escape))
-
         ctrl = Cat(i.ack, oa.stb, ob.stb)
+
+        self.sync += [
+                If(i.ack & i.stb,
+                    was_escape.eq(is_escape & ~was_escape)
+                )
+        ]
+
         self.comb += [
+                oa.payload.eq(i.payload),
+                ob.payload.eq(i.payload),
                 is_escape.eq(i.stb & (i.payload.raw_bits() == escape)),
                 If(is_escape == was_escape, # 00 or 11: data, oa
                     ctrl.eq(Cat(oa.ack, i.stb, 0)),
@@ -46,7 +51,6 @@ class SimSource(SimActor):
 
     def gen(self, data):
         for i in data:
-            # print("{} >".format(i))
             yield Token("source", {"data": i})
 
 
@@ -60,7 +64,6 @@ class SimSink(SimActor):
         while True:
             t = Token("sink")
             yield t
-            #print("{}{}".format(name, t.value["data"]), end=" ")
             self.recv.append(t.value["data"])
 
 
@@ -82,11 +85,9 @@ class EscapeTB(Module):
 
 
 if __name__ == "__main__":
-    #from migen.fhdl import verilog
-    #print(verilog.convert(EscapeTB([])))
-    data = [1, 2, 0xaa, 3, 4, 0xaa, 0xaa, 5, 6, 0xaa, 0xaa, 0xaa, 7, 8,
-            0xaa, 0xaa, 0xaa, 0xaa, 9, 10]
-    aexpect = [1, 2, 4, 0xaa, 5, 6, 0xaa, 8, 0xaa, 0xaa, 9, 10]
+    data = [1, 2, 0xa5, 3, 4, 0xa5, 0xa5, 5, 6, 0xa5, 0xa5, 0xa5, 7, 8,
+            0xa5, 0xa5, 0xa5, 0xa5, 9, 10]
+    aexpect = [1, 2, 4, 0xa5, 5, 6, 0xa5, 8, 0xa5, 0xa5, 9, 10]
     bexpect = [3, 7]
     tb = EscapeTB(data)
     run_simulation(tb, vcd_name="escape.vcd")
