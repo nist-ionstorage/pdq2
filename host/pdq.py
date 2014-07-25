@@ -184,7 +184,7 @@ class Pdq:
 
     def frame(self, t, v, p=None, f=None,
             order=3, aux=None, shift=0, trigger=True, end=True,
-            silence=False, stop=True, clear=True):
+            silence=False, stop=True, clear=True, wait=False):
         """
         serialize frame data
         voltages in volts, times in seconds
@@ -211,7 +211,7 @@ class Pdq:
         head[:] |= shift<<9 # 4
         head[-1] |= (not stop and end)<<13 # 1
         head[0] |= clear<<14 # 1
-        #head[-1] |= reserved<<15 # 1
+        head[-1] |= (not stop and wait)<<15 # 1
         parts.append((head, "u2"))
 
         t, tr, dt = self.line_times(t, shift)
@@ -241,12 +241,12 @@ class Pdq:
         if stop:
             if p is not None:
                 frame += struct.pack("<HH hiihih H ii", (15<<0) | (1<<4) |
-                        (silence<<7) | (end<<13),
+                        (silence<<7) | (end<<13) | (wait<<15),
                         1, int(v[-1]*2**15), 0, 0, 0, 0, 0,
                         int(p[-1]*2**16), int(f[-1]*2**31), 0)
             else:
                 frame += struct.pack("<HH h", (2<<0) |
-                        (silence<<7) | (end<<13),
+                        (silence<<7) | (end<<13) | (wait << 15),
                         1, int(v[-1]*2**15))
         return frame
 

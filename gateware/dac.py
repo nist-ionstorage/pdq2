@@ -19,7 +19,7 @@ line_layout = [
             ("shift", 4), # time shift
             ("end", 1), # return to jump table after
             ("clear", 1), # clear persistent state (phase accu)
-            ("reserved", 1),
+            ("wait", 1), # wait for trigger after
         ]),
         ("dt", 16),
         ("data", 14*16),
@@ -133,8 +133,8 @@ class Sequencer(Module):
         lp = self.sink.payload
 
         self.comb += [
-                adv.eq(self.arm & self.sink.stb
-                    & (self.trigger | ~lp.header.trigger)),
+                adv.eq(self.arm & self.sink.stb & (self.trigger
+                    | (~lp.header.trigger & ~line.header.wait))),
                 tic.eq(dt_dec == dt_end),
                 toc.eq(dt == line.dt),
                 stb.eq(tic & toc & adv),
