@@ -49,7 +49,7 @@ class FileFtdi:
         self.fil = open("pdq_%s_ftdi.bin" % serial, "wb")
 
     def write(self, data):
-        written = self.fil.write(data)
+        self.fil.write(data)
         return len(data)
 
     def close(self):
@@ -107,8 +107,7 @@ class Pdq:
     max_val = 1<<15 # signed 16 bit DAC
     max_out = 10.
     scale = 1/max_out # LSB/V
-    freq = 100e6 # samples/s
-    min_time = 12 # processing time for a order=4 point
+    freq = 50e6 # samples/s
     max_time = 1<<16 # unsigned 16 bit timer
     num_dacs = 3
     num_frames = 8
@@ -163,9 +162,6 @@ class Pdq:
         t = t*scale
         tr = np.rint(t)
         dt = np.diff(tr)
-        # FIXME: clipped intervals cumulatively skew subsequent ones
-        #np.clip(times, self.min_time, self.max_time, out=times)
-        assert np.all(dt >= 12), dt
         return t, tr, dt
 
     def interpolate(self, t, v, order, shift=0, tr=None):
@@ -185,7 +181,7 @@ class Pdq:
         # correct for adder chain latency
         correction_map = [
                 (1, -1/2., 2),
-                (1,  1/3., 3),
+                (1, -1/6., 3),
                 (2,   -1., 3),
                 ]
         for i, c, j in correction_map:
@@ -209,7 +205,7 @@ class Pdq:
         return bytes(frame.data)
 
     def frame(self, t, v, p=None, f=None,
-            order=3, aux=None, shift=0, wait=True, end=True,
+            order=3, aux=None, shift=0, trigger=True, end=True,
             silence=False, stop=True, clear=True):
         """
         serialize frame data
@@ -226,20 +222,23 @@ class Pdq:
         parts = []
 
         head = np.zeros(len(t) - 1, "<u2")
-        head[:] |= 1 + sum(words[:n]) # 4b
+        head[:] |= 1 + sum(words[:n]) # 4
         if p is not None:
             head[:] |= 1<<4 # typ # 2
-        head[0] |= wait<<6 # 1
+        head[0] |= trigger<<6 # 1
         head[-1] |= (not stop and silence)<<7 # 1
         if aux is not None:
             head[:] |= aux[:len(head)]<<8 # 1
         head[:] |= shift<<9 # 4
         head[-1] |= (not stop and end)<<13 # 1
         head[0] |= clear<<14 # 1
-        #head[:] |= 0<<15 # reserved 2
+        #head[-1] |= reserved<<15 # 1
         parts.append((head, "u2"))
 
         t, tr, dt = self.line_times(t, shift)
+        assert np.all(dt >= 1 + sum(words[:n])), dt
+        assert np.all(dt <= self.max_time), dt
+
         parts.append((dt, "u2"))
 
         v = np.clip(v/self.max_out, -1, 1)
@@ -256,7 +255,7 @@ class Pdq:
         if f is not None:
             f = f/self.freq
             for dv, w in zip(self.interpolate(t, f, 1, shift, tr), [2, 2]):
-                parts.append((np.rint(dv*(2**(16*w - 1))), "i%i" % (2*w)))
+                parts.append((np.rint(dv*(2**(16*w))), "i%i" % (2*w)))
 
         frame = self.pack_frame(*parts)
 
@@ -273,13 +272,13 @@ class Pdq:
         return frame
 
     def line(self, dt, v=(), a=(), p=(), f=(), typ=0,
-            silence=False, end=False, wait=False, aux=False,
+            silence=False, end=False, trigger=False, aux=False,
             clear=False):
         raise NotImplementedError
         fmt = "<HH"
         parts = [0, int(round(dt*self.freq))]
         for vi, wi in zip(v, [1, 2, 3, 3]):
-            vi = int(round(vi*(2**(16*w - 1))))
+            vi = int(round(vi*(2**(16*wi - 1))))
             if wi == 3:
                 fmt += "Ih"
                 parts += [vi & 0xffffffff, vi >> 32]
@@ -342,7 +341,7 @@ def _main():
             action="store_true",
             help="disarm group [%(default)s]")
     parser.add_argument("-t", "--times",
-            default="np.arange(5)*.2e-6",
+            default="np.arange(5)*1e-6",
             help="sample times (s) [%(default)s]")
     parser.add_argument("-v", "--voltages",
             default="(1-np.cos(t/t[-1]*2*np.pi))/2",
@@ -370,25 +369,20 @@ def _main():
     times = eval(args.times, globals(), {})
     voltages = eval(args.voltages, globals(), dict(t=times))
 
-    if args.plot:
-        from matplotlib import pyplot as plt
-        fig, ax0 = plt.subplots()
-        ax0.plot(times, voltages, "xk", label="points")
-        if args.order:
-            spline = interpolate.splrep(times, voltages, k=args.order)
-            ttimes = np.arange(0, times[-1], 1/Pdq.freq)
-            vvoltages = interpolate.splev(ttimes, spline)
-            ax0.plot(ttimes, vvoltages, ",b", label="interpolation")
-        fig.savefig(args.plot)
-
     dev = Pdq(serial=args.serial)
     if args.reset:
         dev.write(b"\x00") # flush any escape
         dev.write_cmd("RESET_EN")
         time.sleep(.1)
-    dev.write_cmd("ARM_DIS")
-    if args.dcm is not None:
-        dev.write_cmd(["DCM_DIS", "DCM_EN"][args.dcm])
+    else:
+        dev.write_cmd("ARM_DIS")
+
+    if args.dcm:
+        dev.write_cmd("DCM_EN")
+        dev.freq = 100e6
+    elif args.dcm == 0:
+        dev.write_cmd("DCM_DIS")
+        dev.freq = 50e6
 
     if args.demo:
         channels = [args.channel] if args.channel < 9 \
@@ -400,10 +394,10 @@ def _main():
             for frame in frames:
                 vi = .1*frame + channel + voltages
                 pi = 2*np.pi*(.01*frame + .1*channel + 0*voltages)
-                fi = 30e6*times/times[-1]
+                fi = 10e6*times/times[-1]
                 f.append(b"".join([
                     dev.frame(times, vi, order=args.order, end=False),
-                    dev.frame(times, voltages, pi, fi, wait=False),
+                    dev.frame(times, voltages, pi, fi, trigger=False),
                     ]))
             board, dac = divmod(channel, dev.num_dacs)
             dev.write_data(dev.add_mem_header(board, dac, dev.map_frames(f)))
@@ -413,11 +407,23 @@ def _main():
         map[args.frame] = 0
         dev.write_data(dev.multi_frame(tv, channel=args.channel,
                                        order=args.order, map=map))
+
     if not args.disarm:
         dev.write_cmd("ARM_EN")
     if args.free:
         dev.write_cmd("TRIGGER_EN")
     dev.close()
+
+    if args.plot:
+        from matplotlib import pyplot as plt
+        fig, ax0 = plt.subplots()
+        ax0.plot(times, voltages, "xk", label="points")
+        if args.order:
+            spline = interpolate.splrep(times, voltages, k=args.order)
+            ttimes = np.arange(0, times[-1], 1/dev.freq)
+            vvoltages = interpolate.splev(ttimes, spline)
+            ax0.plot(ttimes, vvoltages, ",b", label="interpolation")
+        fig.savefig(args.plot)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from migen.actorlib.structuring import Cast, Pack, pack_layout
 from migen.genlib.fsm import FSM, NextState
 
 from .escape import Unescaper
-from .ft245r import bus_layout, SimFt245r_rx, Ft245r_rx
+from .ft245r import bus_layout, Ft245r_rx
 
 
 class SimReader(SimActor):
@@ -122,8 +122,6 @@ class ResetGen(Module):
 class Ctrl(Module):
     def __init__(self, pads, dacs):
         self.reset = Signal()
-        self.trigger = Signal()
-        self.arm = Signal()
         self.dcm_sel = Signal()
         self.sink = Sink(bus_layout)
 
@@ -136,6 +134,8 @@ class Ctrl(Module):
         # two stage synchronizer for inputs
         frame = Signal(flen(pads.frame))
         trigger = Signal()
+        arm = Signal()
+        soft_trigger = Signal()
 
         self.sync += [
                 frame.eq(pads.frame),
@@ -155,8 +155,9 @@ class Ctrl(Module):
         for dac in dacs:
             self.sync += [
                     dac.parser.frame.eq(frame),
-                    dac.out.trigger.eq(trigger | self.trigger),
-                    dac.parser.arm.eq(self.arm),
+                    dac.out.trigger.eq(arm & (trigger | soft_trigger)),
+                    dac.out.arm.eq(arm),
+                    dac.parser.arm.eq(arm),
             ]
 
         self.sync += [
@@ -164,10 +165,10 @@ class Ctrl(Module):
                     Case(self.sink.payload.data, {
                         0x00: self.rg.trigger.eq(1),
                         #0x01: self.rg.trigger.eq(0),
-                        0x02: self.trigger.eq(1),
-                        0x03: self.trigger.eq(0),
-                        0x04: self.arm.eq(1),
-                        0x05: self.arm.eq(0),
+                        0x02: soft_trigger.eq(1),
+                        0x03: soft_trigger.eq(0),
+                        0x04: arm.eq(1),
+                        0x05: arm.eq(0),
                         0x06: self.dcm_sel.eq(1),
                         0x07: self.dcm_sel.eq(0),
                     })

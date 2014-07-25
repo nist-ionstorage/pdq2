@@ -4,7 +4,6 @@ from migen.fhdl.std import *
 from migen.genlib.record import Record
 from migen.genlib.misc import optree
 from migen.flow.actor import Source, Sink
-from migen.flow.plumbing import Multiplexer
 from migen.genlib.cordic import Cordic
 from migen.actorlib.fifo import SyncFIFO
 from migen.genlib.fsm import FSM, NextState
@@ -14,7 +13,7 @@ line_layout = [
         ("header", [
             ("length", 4), # length in shorts
             ("typ", 2), # volt, dds
-            ("wait", 1), # wait for trigger before
+            ("trigger", 1), # wait for trigger before
             ("silence", 1), # shut down clock
             ("aux", 1), # aux channel value
             ("shift", 4), # time shift
@@ -38,8 +37,6 @@ class Parser(Module):
 
         ###
 
-        frame_length = Signal(flen(read.dat_r))
-        frame_read = Signal(flen(read.dat_r))
         adr = Signal(flen(read.adr))
         inc = Signal()
 
@@ -117,6 +114,7 @@ class DacOut(Module):
         self.trigger = Signal()
         self.aux = Signal()
         self.silence = Signal()
+        self.arm = Signal()
         self.data = Signal(16)
 
         ###
@@ -135,22 +133,12 @@ class DacOut(Module):
         lp = self.sink.payload
 
         self.comb += [
-                self.aux.eq(line.header.aux),
-                self.silence.eq(line.header.silence),
-                adv.eq(self.trigger | (self.sink.stb & ~lp.header.wait)),
+                adv.eq(self.arm & self.sink.stb & (self.trigger | ~lp.header.trigger)),
                 tic.eq(dt_dec == dt_end),
                 toc.eq(dt == line.dt),
-                self.sink.ack.eq(tic & toc & adv),
-                If(tic,
-                    If(~toc,
-                        inc.eq(1)
-                    ).Elif(adv,
-                        inc.eq(1)
-                    ).Elif(~toc0,
-                        inc.eq(1)
-                    )
-                ),
-                stb.eq(self.sink.stb & self.sink.ack),
+                stb.eq(tic & toc & adv),
+                self.sink.ack.eq(stb),
+                inc.eq(self.arm & tic & (~toc | (~toc0 & ~adv))),
         ]
 
         subs = [
@@ -164,6 +152,8 @@ class DacOut(Module):
         self.sync += [
                 toc0.eq(toc),
                 self.data.eq(optree("+", [sub.data for sub in subs])),
+                self.aux.eq(line.header.aux),
+                self.silence.eq(line.header.silence),
 
                 If(~tic,
                     dt_dec.eq(dt_dec + 1),
@@ -266,6 +256,7 @@ class TB(Module):
         self.outputs.append(selfp.dac.out.data)
         if selfp.simulator.cycle_counter == 5:
             selfp.dac.parser.arm = 1
+            selfp.dac.out.arm = 1
         elif selfp.simulator.cycle_counter == 20:
             selfp.dac.out.trigger = 1
         elif selfp.simulator.cycle_counter == 21:
@@ -292,10 +283,11 @@ def _main():
     t = np.arange(0, 5) * .2e-6
     v = 9*(1-np.cos(t/t[-1]*2*np.pi))/2
     p = pdq.Pdq()
+    p.freq = 100e6
     k = 3
     mem = p.map_frames([b"".join([
             p.frame(t, v, order=k, end=False),
-            p.frame(t, v, 0*t, 30e6*t/t[-1], wait=False)
+            p.frame(t, v, 0*t, 20e6*t/t[-1], trigger=False)
     ])])
     tb = TB(list(np.fromstring(mem, "<u2")))
     run_simulation(tb, ncycles=250, vcd_name="dac.vcd")
@@ -308,23 +300,17 @@ def _main():
     vv = interpolate.splev(tt, sp)
     plt.plot(tt, vv, "+g")
 
-    vv1 = 0*vv
-    vv2 = 0*vv
-    ij = np.searchsorted(tt, t)
+    vv1 = []
     dv = p.interpolate(t*p.freq, v, order=k)
     for i, tti in enumerate(tt):
         if tti in t:
             j = np.searchsorted(t, tti)
             v = [dvi[j] for dvi in dv]
             k = np.searchsorted(tt, t[j + 1])
-            vv2[i:k] = np.polyval(
-                    [vi/f for f, vi in zip([1, 1, 2, 6], v)][::-1],
-                    (tt[i:k] - tti)*p.freq)
-        vv1[i] = v[0]
+        vv1.append(v[0])
         for k in range(len(v) - 1):
             v[k] += v[k+1]
     plt.step(tt + 1/p.freq, vv1, "-g")
-    #plt.step(tt + 1/p.freq, vv2, "-b")
 
     out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
     tim = np.arange(out.shape[0])/p.freq
