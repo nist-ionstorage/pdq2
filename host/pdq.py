@@ -125,6 +125,8 @@ class Pdq:
             "TRIGGER_DIS": b"\x03",
             "ARM_EN":      b"\x04",
             "ARM_DIS":     b"\x05",
+            "DCM_EN":      b"\x06",
+            "DCM_DIS":     b"\x07",
             }
 
     def __init__(self, serial=None):
@@ -348,8 +350,10 @@ def _main():
     parser.add_argument("-o", "--order", default=3, type=int,
             help="interpolation (0: const, 1: lin, 2: quad, 3: cubic)"
                  " [%(default)s]")
+    parser.add_argument("-m", "--dcm", default=None, type=int,
+            help="choose fast 100MHz clock [%(default)s]")
     parser.add_argument("-x", "--demo", default=False, action="store_true",
-            help="demo mode: half sine and chirped [%(default)s]")
+            help="demo mode: pulse and chirp, 1V*ch+0.1V*frame [%(default)s]")
     parser.add_argument("-p", "--plot", help="plot to file [%(default)s]")
     parser.add_argument("-d", "--debug", default=False,
             action="store_true", help="debug communications")
@@ -382,8 +386,9 @@ def _main():
         dev.write(b"\x00") # flush any escape
         dev.write_cmd("RESET_EN")
         time.sleep(.1)
-    else:
-        dev.write_cmd("ARM_DIS")
+    dev.write_cmd("ARM_DIS")
+    if args.dcm is not None:
+        dev.write_cmd(["DCM_DIS", "DCM_EN"][args.dcm])
 
     if args.demo:
         channels = [args.channel] if args.channel < 9 \

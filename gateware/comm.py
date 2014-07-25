@@ -124,6 +124,7 @@ class Ctrl(Module):
         self.reset = Signal()
         self.trigger = Signal()
         self.arm = Signal()
+        self.dcm_sel = Signal()
         self.sink = Sink(bus_layout)
 
         ###
@@ -167,6 +168,8 @@ class Ctrl(Module):
                         0x03: self.trigger.eq(0),
                         0x04: self.arm.eq(1),
                         0x05: self.arm.eq(0),
+                        0x06: self.dcm_sel.eq(1),
+                        0x07: self.dcm_sel.eq(0),
                     })
                 )
         ]

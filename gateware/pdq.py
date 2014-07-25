@@ -34,6 +34,7 @@ class Pdq(Module):
             dcm_clk2x = Signal()
             dcm_clk2x180 = Signal()
             dcm_locked = Signal()
+            dcm_sel = Signal()
             self.specials += Instance("DCM_SP",
                     p_CLKDV_DIVIDE=2,
                     p_CLKFX_DIVIDE=1,
@@ -61,9 +62,14 @@ class Pdq(Module):
                     #i_CLKFB=clk_p,
                     i_CLKFB=0,
                     )
-            self.specials += Instance("BUFG", i_I=dcm_clk2x, o_O=clk_p)
-            self.specials += Instance("BUFG", i_I=dcm_clk2x180, o_O=clk_n)
-            self.specials += Instance("FD", p_INIT=1, i_D=~dcm_locked | rst,
+            self.specials += Instance("BUFGMUX",
+                    i_I0=clkin_sdr, i_I1=dcm_clk2x, i_S=dcm_sel,
+                    o_O=clk_p)
+            self.specials += Instance("BUFGMUX",
+                    i_I0=~clkin_sdr, i_I1=dcm_clk2x180, i_S=dcm_sel,
+                    o_O=clk_n)
+            self.specials += Instance("FD", p_INIT=1,
+                    i_D=~dcm_locked | rst,
                     i_C=self.cd_sys.clk, o_Q=self.cd_sys.rst)
 
         dacs = []
@@ -98,7 +104,8 @@ class Pdq(Module):
         self.submodules.comm = Comm(pads, dacs)
         self.comb += [
                 rst.eq(self.comm.ctrl.reset),
-                pads.go2_out.eq(dcm_locked)
+                pads.go2_out.eq(dcm_locked),
+                dcm_sel.eq(self.comm.ctrl.dcm_sel)
         ]
 
 
