@@ -15,7 +15,7 @@ class SimFt245r_rx(Module):
         self.data = data
         self.sync += pads.rd_in.eq(pads.rd_out)
         pads.rxfl.reset = 1
-        self.dat = Signal(flen(pads.data))
+        self.dat = Signal.like(pads.data)
         self.comb += [
                 If(~pads.rdl,
                     pads.data.eq(self.dat),

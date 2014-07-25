@@ -75,7 +75,7 @@ class Pdq(Module):
             pads = platform.request("dac", i)
             # inverted clocks ensure setup and hold times of data
             ce = Signal()
-            d = Signal(flen(dac.out.data))
+            d = Signal.like(dac.out.data)
             self.comb += [
                     ce.eq(~dac.out.silence),
                     d.eq(~dac.out.data), # pcb inversion

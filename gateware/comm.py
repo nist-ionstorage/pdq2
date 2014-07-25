@@ -132,7 +132,7 @@ class Ctrl(Module):
         self.submodules.rg = ResetGen()
 
         # two stage synchronizer for inputs
-        frame = Signal(flen(pads.frame))
+        frame = Signal.like(pads.frame)
         trigger = Signal()
         arm = Signal()
         soft_trigger = Signal()

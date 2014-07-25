@@ -37,15 +37,15 @@ class Parser(Module):
 
         ###
 
-        adr = Signal(flen(read.adr))
+        adr = Signal.like(read.adr)
         inc = Signal()
 
         lp = self.source.payload
-        raw = Signal(flen(lp.raw_bits()))
+        raw = Signal.like(lp.raw_bits())
         self.comb += lp.raw_bits().eq(raw)
         lpa = Array([raw[i:i + flen(read.dat_r)] for i in
             range(0, flen(raw), flen(read.dat_r))])
-        data_read = Signal(flen(lp.header.length))
+        data_read = Signal.like(lp.header.length)
 
         self.submodules.fsm = fsm = FSM(reset_state="JUMP")
         fsm.act("JUMP",
