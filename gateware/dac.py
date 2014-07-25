@@ -107,7 +107,7 @@ class Parser(Module):
         ]
 
 
-class DacOut(Module):
+class Sequencer(Module):
     def __init__(self):
         self.sink = Sink(line_layout)
 
@@ -164,7 +164,7 @@ class DacOut(Module):
                 ).Elif(stb,
                     line.header.eq(lp.header),
                     line.dt.eq(lp.dt - 1),
-                    dt_end.eq((1<<line.header.shift) - 1),
+                    dt_end.eq((1<<lp.header.shift) - 1),
                     dt_dec.eq(0),
                     dt.eq(0),
                 )
@@ -235,7 +235,7 @@ class Dds(Module):
 class Dac(Module):
     def __init__(self, fifo=0, **kwargs):
         self.submodules.parser = Parser(**kwargs)
-        self.submodules.out = DacOut()
+        self.submodules.out = Sequencer()
         if fifo:
             self.submodules.fifo = SyncFIFO(line_layout, fifo)
             self.comb += [

@@ -11,74 +11,72 @@ import warnings
 logger = logging.getLogger("Pdq")
 
 
-class PyFtdi:
-    def __init__(self, serial=None):
-        self.dev = pylibftdi.Device(device_id=serial)
-
-    def write(self, data):
-        written = self.dev.write(data)
-        if written < 0:
-            raise pylibftdi.FtdiError(written,
-                    self.dev.get_error_string())
-        return written
-
-    def close(self):
-        self.dev.close()
-        del self.dev
-
-
-class D2xxFtdi:
-    def __init__(self, serial=None):
-        if serial is not None:
-            self.dev = ftd2xx.openEx(serial)
-        else:
-            self.dev = ftd2xx.open()
-        self.dev.setTimeouts(read=5000, write=5000)
-
-    def write(self, data):
-        written = self.dev.write(str(data))
-        return written
-
-    def close(self):
-        self.dev.close()
-        del self.dev
-
-
-class FileFtdi:
-    def __init__(self, serial="unknown"):
-        self.fil = open("pdq_%s_ftdi.bin" % serial, "wb")
-
-    def write(self, data):
-        self.fil.write(data)
-        return len(data)
-
-    def close(self):
-        self.fil.close()
-        del self.fil
-
 Ftdi = None
+
 
 try:
     import pylibftdi
+
+    class PyFtdi:
+        def __init__(self, serial=None):
+            self.dev = pylibftdi.Device(device_id=serial)
+
+        def write(self, data):
+            written = self.dev.write(data)
+            if written < 0:
+                raise pylibftdi.FtdiError(written,
+                        self.dev.get_error_string())
+            return written
+
+        def close(self):
+            self.dev.close()
+            del self.dev
+
     Ftdi = PyFtdi
 except ImportError:
     pass
 
+
 try:
     import ftd2xx
+
+    class D2xxFtdi:
+        def __init__(self, serial=None):
+            if serial is not None:
+                self.dev = ftd2xx.openEx(serial)
+            else:
+                self.dev = ftd2xx.open()
+            self.dev.setTimeouts(read=5000, write=5000)
+
+        def write(self, data):
+            written = self.dev.write(str(data))
+            return written
+
+        def close(self):
+            self.dev.close()
+            del self.dev
+
     Ftdi = D2xxFtdi
 except ImportError:
     pass
 
-try:
-    from testbench import pdq
-    Ftdi = pdq.SimFtdi
-except ImportError:
-    pass
 
 if Ftdi is None:
-    Ftdi = FileFtdi
+
+    class FileFtdi:
+        def __init__(self, serial="unknown"):
+            self.fil = open("pdq_%s_ftdi.bin" % serial, "wb")
+
+        def write(self, data):
+            self.fil.write(data)
+            return len(data)
+
+        def close(self):
+            self.fil.close()
+            del self.fil
+
     warnings.warn("no ftdi library found. writing to files")
+    Ftdi = FileFtdi
 
 
 class Pdq:
@@ -87,7 +85,6 @@ class Pdq:
     """
     max_val = 1<<15 # signed 16 bit DAC
     max_out = 10.
-    scale = 1/max_out # LSB/V
     freq = 50e6 # samples/s
     max_time = 1<<16 # unsigned 16 bit timer
     num_dacs = 3
@@ -200,10 +197,11 @@ class Pdq:
                 p = np.zeros_like(f)
         if p is not None:
             n += 1
+        length = 1 + sum(words[:n])
         parts = []
 
         head = np.zeros(len(t) - 1, "<u2")
-        head[:] |= 1 + sum(words[:n]) # 4
+        head[:] |= length # 4
         if p is not None:
             head[:] |= 1<<4 # typ # 2
         head[0] |= trigger<<6 # 1
@@ -217,8 +215,8 @@ class Pdq:
         parts.append((head, "u2"))
 
         t, tr, dt = self.line_times(t, shift)
-        assert np.all(dt >= 1 + sum(words[:n])), dt
-        assert np.all(dt <= self.max_time), dt
+        assert np.all(dt*2**shift > 1 + length), (dt, length)
+        assert np.all(dt < self.max_time), dt
 
         parts.append((dt, "u2"))
 
@@ -378,7 +376,7 @@ def _main():
                 fi = 10e6*times/times[-1]
                 f.append(b"".join([
                     dev.frame(times, vi, order=args.order, end=False),
-                    dev.frame(times, voltages, pi, fi, trigger=False),
+                    dev.frame(2*times, voltages, pi, fi, trigger=False),
                     ]))
             board, dac = divmod(channel, dev.num_dacs)
             dev.write_data(dev.add_mem_header(board, dac, dev.map_frames(f)))

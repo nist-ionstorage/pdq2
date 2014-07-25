@@ -1,5 +1,4 @@
 from migen.fhdl.std import *
-from migen.fhdl import verilog
 from migen.sim.generic import run_simulation
 
 from matplotlib import pyplot as plt
@@ -17,6 +16,7 @@ class TB(Module):
         if mem is not None:
             self.dac.parser.mem.init = mem
         self.outputs = []
+        self.dac.parser.frame.reset = 0
 
     def do_simulation(self, selfp):
         self.outputs.append(selfp.dac.out.data)
@@ -33,16 +33,17 @@ class TB(Module):
 
 
 def _main():
+    #from migen.fhdl import verilog
     #print(verilog.convert(Dac()))
 
-    t = np.arange(0, 5) * .2e-6
+    t = np.arange(0, 5) * .12e-6
     v = 9*(1-np.cos(t/t[-1]*2*np.pi))/2
     p = pdq.Pdq()
     p.freq = 100e6
     k = 3
     mem = p.map_frames([b"".join([
             p.frame(t, v, order=k, end=False),
-            p.frame(t, v, 0*t, 20e6*t/t[-1], trigger=False)
+            p.frame(2*t, v, 0*t+np.pi/2, 20e6*t/t[-1], trigger=False)
     ])])
     tb = TB(list(np.fromstring(mem, "<u2")))
     run_simulation(tb, ncycles=250, vcd_name="dac.vcd")
@@ -57,11 +58,12 @@ def _main():
 
     vv1 = []
     dv = p.interpolate(t*p.freq, v, order=k)
+    j = 0
     for i, tti in enumerate(tt):
-        if tti in t:
-            j = np.searchsorted(t, tti)
+        if tti >= t[j]:
             v = [dvi[j] for dvi in dv]
             k = np.searchsorted(tt, t[j + 1])
+            j += 1
         vv1.append(v[0])
         for k in range(len(v) - 1):
             v[k] += v[k+1]

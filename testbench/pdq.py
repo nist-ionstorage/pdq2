@@ -73,8 +73,14 @@ class SimFtdi:
 
     def close(self):
         tb = TB(self.buffer)
-        run_simulation(tb, vcd_name="pdq.vcd", ncycles=5000)
+        run_simulation(tb, vcd_name="pdq.vcd", ncycles=6000)
         out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
         tim = np.arange(out.shape[0])/100e6
         plt.plot(tim, out)
         plt.show()
+
+
+if __name__ == "__main__":
+    from host import pdq
+    pdq.Ftdi = SimFtdi
+    pdq._main()
