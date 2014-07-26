@@ -228,7 +228,7 @@ class Pdq:
 
         if p is not None:
             p = p/(2*np.pi)
-            for dv, w in zip(self.interpolate(t, p, 0, 0, tr), [1]):
+            for dv, w in zip(self.interpolate(t, p, 0, shift, tr), [1]):
                 parts.append((np.rint(dv*(2**(16*w))), "u%i" % (2*w)))
 
         if f is not None:
@@ -377,7 +377,9 @@ def _main():
                 f.append(b"".join([
                     dev.frame(times, vi, order=args.order, end=False),
                     dev.frame(2*times, voltages, pi, fi, trigger=False),
-                    ]))
+                    #dev.frame(2*times, 0*vi+.1, 0*pi, 0*fi+1e6),
+                    #dev.frame(times, 0*vi, order=args.order, silence=True),
+                ]))
             board, dac = divmod(channel, dev.num_dacs)
             dev.write_data(dev.add_mem_header(board, dac, dev.map_frames(f)))
     else:
