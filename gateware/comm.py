@@ -121,6 +121,7 @@ class Ctrl(Module):
         frame = Signal.like(pads.frame)
         trigger = Signal()
         arm = Signal()
+        start = Signal()
         soft_trigger = Signal()
 
         self.sync += [
@@ -143,6 +144,7 @@ class Ctrl(Module):
                     dac.out.trigger.eq(arm & (trigger | soft_trigger)),
                     dac.out.arm.eq(arm),
                     dac.parser.arm.eq(arm),
+                    dac.parser.start.eq(start),
             ]
 
         self.sync += [
@@ -156,6 +158,8 @@ class Ctrl(Module):
                         0x05: arm.eq(0),
                         0x06: self.dcm_sel.eq(1),
                         0x07: self.dcm_sel.eq(0),
+                        0x08: start.eq(1),
+                        0x09: start.eq(0),
                     })
                 )
         ]

@@ -104,6 +104,8 @@ class Pdq:
             "ARM_DIS":     b"\x05",
             "DCM_EN":      b"\x06",
             "DCM_DIS":     b"\x07",
+            "START_EN":    b"\x08",
+            "START_DIS":   b"\x09",
             }
 
     def __init__(self, serial=None):
@@ -349,19 +351,18 @@ def _main():
     voltages = eval(args.voltages, globals(), dict(t=times))
 
     dev = Pdq(serial=args.serial)
+
     if args.reset:
         dev.write(b"\x00") # flush any escape
         dev.write_cmd("RESET_EN")
         time.sleep(.1)
-    else:
-        dev.write_cmd("ARM_DIS")
-
     if args.dcm:
         dev.write_cmd("DCM_EN")
         dev.freq = 100e6
     elif args.dcm == 0:
         dev.write_cmd("DCM_DIS")
         dev.freq = 50e6
+    dev.write_cmd("START_DIS")
 
     if args.demo:
         channels = [args.channel] if args.channel < 9 \
@@ -389,6 +390,7 @@ def _main():
         dev.write_data(dev.multi_frame(tv, channel=args.channel,
                                        order=args.order, map=map))
 
+    dev.write_cmd("START_EN")
     if not args.disarm:
         dev.write_cmd("ARM_EN")
     if args.free:

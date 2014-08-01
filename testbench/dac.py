@@ -21,6 +21,7 @@ class TB(Module):
     def do_simulation(self, selfp):
         self.outputs.append(selfp.dac.out.data)
         if selfp.simulator.cycle_counter == 5:
+            selfp.dac.parser.start = 1
             selfp.dac.parser.arm = 1
             selfp.dac.out.arm = 1
         elif selfp.simulator.cycle_counter == 20:

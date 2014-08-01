@@ -33,6 +33,7 @@ class Parser(Module):
 
         self.source = Source(line_layout)
         self.arm = Signal()
+        self.start = Signal()
         self.frame = Signal(3)
 
         ###
@@ -50,7 +51,7 @@ class Parser(Module):
         self.submodules.fsm = fsm = FSM(reset_state="JUMP")
         fsm.act("JUMP",
                 read.adr.eq(self.frame),
-                If(self.arm,
+                If(self.start,
                     NextState("FRAME")
                 )
         )
@@ -133,9 +134,8 @@ class Sequencer(Module):
         lp = self.sink.payload
 
         self.comb += [
-                adv.eq(self.arm & self.sink.stb
-                    & (~self.trigger | ~line.header.wait)
-                    & (self.trigger | ~lp.header.trigger)
+                adv.eq(self.arm & self.sink.stb & (self.trigger
+                        | ~(line.header.wait | lp.header.trigger))
                 ),
                 tic.eq(dt_dec == dt_end),
                 toc.eq(dt == line.dt),
