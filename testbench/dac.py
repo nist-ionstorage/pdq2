@@ -6,8 +6,8 @@ import numpy as np
 from scipy import interpolate
 
 from gateware.dac import Dac
-from host import pdq
-pdq.Ftdi = pdq.FileFtdi
+from host import pdq2
+pdq2.Ftdi = pdq2.FileFtdi
 
 
 class TB(Module):
@@ -39,7 +39,7 @@ def _main():
 
     t = np.arange(0, 5) * .12e-6
     v = 9*(1-np.cos(t/t[-1]*2*np.pi))/2
-    p = pdq.Pdq()
+    p = pdq2.Pdq2()
     p.freq = 100e6
     k = 3
     mem = p.map_frames([b"".join([

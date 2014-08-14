@@ -8,7 +8,7 @@ import numpy as np
 from scipy import interpolate
 import warnings
 
-logger = logging.getLogger("Pdq")
+logger = logging.getLogger("Pdq2")
 
 
 Ftdi = None
@@ -79,7 +79,7 @@ if Ftdi is None:
     Ftdi = FileFtdi
 
 
-class Pdq:
+class Pdq2:
     """
     PDQ DAC (a.k.a. QC_Waveform)
     """
@@ -308,7 +308,7 @@ def _main():
     import argparse
     import time
 
-    parser = argparse.ArgumentParser(description="""PDQ DAC frontend.
+    parser = argparse.ArgumentParser(description="""PDQ2 frontend.
             Evaluates times and voltages, interpolates and uploads
             them.""")
     parser.add_argument("-s", "--serial", default=None,
@@ -354,7 +354,7 @@ def _main():
     times = eval(args.times, globals(), {})
     voltages = eval(args.voltages, globals(), dict(t=times))
 
-    dev = Pdq(serial=args.serial)
+    dev = Pdq2(serial=args.serial)
 
     if args.reset:
         dev.write(b"\x00") # flush any escape

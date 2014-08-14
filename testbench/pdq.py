@@ -81,6 +81,6 @@ class SimFtdi:
 
 
 if __name__ == "__main__":
-    from host import pdq
-    pdq.Ftdi = SimFtdi
-    pdq._main()
+    from host import pdq2
+    pdq2.Ftdi = SimFtdi
+    pdq2._main()

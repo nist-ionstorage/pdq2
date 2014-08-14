@@ -6,7 +6,7 @@ from .dac import Dac
 from .comm import Comm
 
 
-class Pdq(Module):
+class Pdq2(Module):
     def __init__(self, platform):
         self.clock_domains.cd_sys = ClockDomain()
         clk_p = self.cd_sys.clk
