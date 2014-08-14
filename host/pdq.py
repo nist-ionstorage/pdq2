@@ -89,6 +89,7 @@ class Pdq:
     max_time = 1<<16 # unsigned 16 bit timer
     num_dacs = 3
     num_frames = 8
+    num_channels = 9
     max_data = 4*(1<<10) # 8kx16 8kx16 4kx16
     escape_char = b"\xa5"
     cordic_gain = 1.
@@ -109,6 +110,7 @@ class Pdq:
             }
 
     def __init__(self, serial=None):
+        self.serial = serial
         self.dev = Ftdi(serial)
 
     def close(self):
@@ -131,8 +133,8 @@ class Pdq:
         """
         for segment in segments:
             written = self.dev.write(segment)
-            if written < len(segment):
-                logger.error("wrote only %i of %i", written, len(segment))
+            if written != len(segment):
+                raise IOError("wrote %i of %i" % (written, len(segment)))
 
     def write_data(self, *segments):
         return self.write(*(self.escape(seg) for seg in segments))
@@ -339,6 +341,8 @@ def _main():
             action="store_true", help="debug communications")
     parser.add_argument("-r", "--reset", default=False,
             action="store_true", help="do reset before")
+    parser.add_argument("-b", "--bit", default=False,
+            action="store_true", help="do bit test")
 
     args = parser.parse_args()
 
@@ -365,8 +369,8 @@ def _main():
     dev.write_cmd("START_DIS")
 
     if args.demo:
-        channels = [args.channel] if args.channel < 9 \
-            else range(9)
+        channels = [args.channel] if args.channel < dev.num_channels \
+            else range(dev.num_channels)
         frames = [args.frame] if args.frame < dev.num_frames \
             else range(dev.num_frames)
         for channel in channels:
@@ -383,6 +387,19 @@ def _main():
                 ]))
             board, dac = divmod(channel, dev.num_dacs)
             dev.write_data(dev.add_mem_header(board, dac, dev.map_frames(f)))
+    elif args.bit:
+        map = [0] * dev.num_frames
+        t = np.arange(2*16) * 1.
+        v = [-1, 0, -1]
+        for i in range(15):
+            vi = 1<<i
+            v.extend([vi - 1, vi])
+        v = np.array(v)*dev.max_out/(1<<15)
+        t, v = t[:3], v[:3]
+        #print(t, v)
+        for channel in range(dev.num_channels):
+            dev.write_data(dev.multi_frame([(t, v)], channel=channel,
+                order=0, map=map, shift=15, stop=False, trigger=False))
     else:
         tv = [(times, voltages)]
         map = [None] * dev.num_frames
