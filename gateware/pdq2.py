@@ -63,7 +63,7 @@ class Pdq2(Module):
         dacs = []
         for i, mem in enumerate((1<<13, 1<<13, 1<<12)):
         #for i, mem in enumerate((1<<13, (1<<12)+(1<<11), (1<<12)+(1<<11))):
-            dac = InsertReset(Dac(mem_depth=mem))
+            dac = Dac(mem_depth=mem)
             setattr(self.submodules, "dac{}".format(i), dac)
             dacs.append(dac)
 
