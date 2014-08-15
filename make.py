@@ -1,7 +1,7 @@
 # Robert Jordens <jordens@gmail.com> 2013
 
 from gateware.platform import Platform
-from gateware.pdq import Pdq2
+from gateware.pdq2 import Pdq2
 
 
 def _main():
