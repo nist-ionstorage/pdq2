@@ -93,5 +93,5 @@ promgen -w -spi -c FF -p mcs -o {build_name}.mcs -u 0 {build_name}.bit
     def do_finalize(self, fragment):
         try:
             self.add_period_constraint(self.lookup_request("clk50"), 20)
-        except ConstrainError:
+        except ConstraintError:
             pass
