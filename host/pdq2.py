@@ -3,115 +3,50 @@
 #
 # Robert Jordens <jordens@gmail.com>, 2012
 
-import logging, struct
+import logging
+import struct
+
 import numpy as np
 from scipy import interpolate
-import warnings
+import serial
 
-logger = logging.getLogger("Pdq2")
-
-
-Ftdi = None
-
-
-try:
-    import pylibftdi
-
-    class PyFtdi:
-        def __init__(self, serial=None):
-            self.dev = pylibftdi.Device(device_id=serial)
-
-        def write(self, data):
-            written = self.dev.write(data)
-            if written < 0:
-                raise pylibftdi.FtdiError(written,
-                        self.dev.get_error_string())
-            return written
-
-        def close(self):
-            self.dev.close()
-            del self.dev
-
-    Ftdi = PyFtdi
-except ImportError:
-    pass
-
-
-try:
-    import ftd2xx
-
-    class D2xxFtdi:
-        def __init__(self, serial=None):
-            if serial is not None:
-                self.dev = ftd2xx.openEx(serial)
-            else:
-                self.dev = ftd2xx.open()
-            self.dev.setTimeouts(read=5000, write=5000)
-
-        def write(self, data):
-            written = self.dev.write(str(data))
-            return written
-
-        def close(self):
-            self.dev.close()
-            del self.dev
-
-    Ftdi = D2xxFtdi
-except ImportError:
-    pass
-
-
-if Ftdi is None:
-
-    class FileFtdi:
-        def __init__(self, serial="unknown"):
-            self.fil = open("pdq_%s_ftdi.bin" % serial, "wb")
-
-        def write(self, data):
-            self.fil.write(data)
-            return len(data)
-
-        def close(self):
-            self.fil.close()
-            del self.fil
-
-    warnings.warn("no ftdi library found. writing to files")
-    Ftdi = FileFtdi
+logger = logging.getLogger(__name__)
 
 
 class Pdq2:
     """
     PDQ DAC (a.k.a. QC_Waveform)
     """
-    max_val = 1<<15 # signed 16 bit DAC
+    max_val = 1 << 15  # signed 16 bit DAC
     max_out = 10.
-    freq = 50e6 # samples/s
-    max_time = 1<<16 # unsigned 16 bit timer
+    freq = 50e6  # samples/s
+    max_time = 1 << 16  # unsigned 16 bit timer
     num_dacs = 3
     num_frames = 8
     num_channels = 9
-    max_data = 4*(1<<10) # 8kx16 8kx16 4kx16
+    max_data = 4*(1 << 10)  # 8kx16 8kx16 4kx16
     escape_char = b"\xa5"
     cordic_gain = 1.
     for i in range(16):
         cordic_gain *= np.sqrt(1 + 2**(-2*i))
 
     commands = {
-            "RESET_EN":    b"\x00",
-            "RESET_DIS":   b"\x01",
-            "TRIGGER_EN":  b"\x02",
-            "TRIGGER_DIS": b"\x03",
-            "ARM_EN":      b"\x04",
-            "ARM_DIS":     b"\x05",
-            "DCM_EN":      b"\x06",
-            "DCM_DIS":     b"\x07",
-            "START_EN":    b"\x08",
-            "START_DIS":   b"\x09",
-            }
+        "RESET_EN":    b"\x00",
+        "RESET_DIS":   b"\x01",
+        "TRIGGER_EN":  b"\x02",
+        "TRIGGER_DIS": b"\x03",
+        "ARM_EN":      b"\x04",
+        "ARM_DIS":     b"\x05",
+        "DCM_EN":      b"\x06",
+        "DCM_DIS":     b"\x07",
+        "START_EN":    b"\x08",
+        "START_DIS":   b"\x09",
+    }
 
-    def __init__(self, serial=None):
-        self.serial = serial
-        self.dev = Ftdi(serial)
+    def __init__(self, ser=None, dev=None):
+        if dev is None:
+            dev = serial.serial_for_url("hwgrep://{}".format(ser))
+        self.dev = dev
 
     def close(self):
         self.dev.close()
@@ -124,8 +59,8 @@ class Pdq2:
         return self.write(self.cmd(cmd))
 
     def escape(self, data):
-        return data.replace(self.escape_char, self.escape_char +
-                self.escape_char)
+        return data.replace(self.escape_char,
+                            self.escape_char + self.escape_char)
 
     def write(self, *segments):
         """
@@ -159,13 +94,13 @@ class Pdq2:
         if tr is None:
             tr = t
         dv = [interpolate.splev(tr[:-1], spline, der=i)
-                for i in range(order + 1)]
+              for i in range(order + 1)]
         # correct for adder chain latency
         correction_map = [
-                (1, -1/2., 2),
-                (1, -1/6., 3),
-                (2,   -1., 3),
-                ]
+            (1, -1/2., 2),
+            (1, -1/6., 3),
+            (2,   -1., 3),
+        ]
         for i, c, j in correction_map:
             if j >= len(dv):
                 break
@@ -181,14 +116,14 @@ class Pdq2:
                 frame.append((part >> 32).astype("<i2"))
             else:
                 frame.append(part.astype("<" + dtype))
-        frame = np.rec.fromarrays(frame) # interleave
+        frame = np.rec.fromarrays(frame)  # interleave
         logger.debug("frame %s dtype %s shape %s length %s",
-                frame, frame.dtype, frame.shape, len(bytes(frame.data)))
+                     frame, frame.dtype, frame.shape, len(bytes(frame.data)))
         return bytes(frame.data)
 
     def frame(self, t, v, p=None, f=None,
-            order=3, aux=None, shift=0, trigger=True, end=True,
-            silence=False, stop=True, clear=True, wait=False):
+              order=3, aux=None, shift=0, trigger=True, end=True,
+              silence=False, stop=True, clear=True, wait=False):
         """
         serialize frame data
         voltages in volts, times in seconds
@@ -205,17 +140,17 @@ class Pdq2:
         parts = []
 
         head = np.zeros(len(t) - 1, "<u2")
-        head[:] |= length # 4
+        head[:] |= length  # 4 bit
         if p is not None:
-            head[:] |= 1<<4 # typ # 2
-        head[0] |= trigger<<6 # 1
-        head[-1] |= (not stop and silence)<<7 # 1
+            head[:] |= 1 << 4  # typ # 2 bit
+        head[0] |= trigger << 6  # 1 bit
+        head[-1] |= (not stop and silence) << 7  # 1 bit
         if aux is not None:
-            head[:] |= aux[:len(head)]<<8 # 1
-        head[:] |= shift<<9 # 4
-        head[-1] |= (not stop and end)<<13 # 1
-        head[0] |= clear<<14 # 1
-        head[-1] |= (not stop and wait)<<15 # 1
+            head[:] |= aux[:len(head)] << 8  # 1 bit
+        head[:] |= shift << 9  # 4 bit
+        head[-1] |= (not stop and end) << 13  # 1 bit
+        head[0] |= clear << 14  # 1 bit
+        head[-1] |= (not stop and wait) << 15  # 1 bit
         parts.append((head, "u2"))
 
         t, tr, dt = self.line_times(t, shift)
@@ -244,19 +179,19 @@ class Pdq2:
 
         if stop:
             if p is not None:
-                frame += struct.pack("<HH hiihih H ii", (15<<0) | (1<<4) |
-                        (silence<<7) | (end<<13) | (wait<<15),
-                        1, int(v[-1]*2**15), 0, 0, 0, 0, 0,
-                        int(p[-1]*2**16), int(f[-1]*2**31), 0)
+                frame += struct.pack(
+                    "<HH hiihih H ii", (15 << 0) | (1 << 4) | (silence << 7) |
+                    (end << 13) | (wait << 15), 1, int(v[-1]*2**15),
+                    0, 0, 0, 0, 0, int(p[-1]*2**16), int(f[-1]*2**31), 0)
             else:
-                frame += struct.pack("<HH h", (2<<0) |
-                        (silence<<7) | (end<<13) | (wait << 15),
-                        1, int(v[-1]*2**15))
+                frame += struct.pack(
+                    "<HH h", (2 << 0) | (silence << 7) | (end << 13) |
+                    (wait << 15), 1, int(v[-1]*2**15))
         return frame
 
     def line(self, dt, v=(), a=(), p=(), f=(), typ=0,
-            silence=False, end=False, trigger=False, aux=False,
-            clear=False):
+             silence=False, end=False, trigger=False, aux=False,
+             clear=False):
         raise NotImplementedError
         fmt = "<HH"
         parts = [0, int(round(dt*self.freq))]
@@ -268,8 +203,8 @@ class Pdq2:
             else:
                 fmt += "bih"[wi]
                 parts += [vi]
-        if p is not None:
-            typ = 1
+        # if p is not None:
+        #     typ = 1
 
     def map_frames(self, frames, map=None):
         table = []
@@ -292,8 +227,8 @@ class Pdq2:
 
     def add_mem_header(self, board, dac, data, adr=0):
         assert dac in range(self.num_dacs)
-        head = struct.pack("<HHH", (board << 4) | dac,
-                adr, adr + len(data)//2 - 1)
+        head = struct.pack("<HHH", (board << 4) | dac, adr,
+                           adr + len(data)//2 - 1)
         return head + data
 
     def multi_frame(self, times_voltages, channel, map=None, **kwargs):
@@ -304,7 +239,7 @@ class Pdq2:
         return data
 
 
-def _main():
+def main(dev=None):
     import argparse
     import time
 
@@ -312,37 +247,35 @@ def _main():
             Evaluates times and voltages, interpolates and uploads
             them.""")
     parser.add_argument("-s", "--serial", default=None,
-            help="device (FT245R) serial string [first]")
+                        help="device (FT245R) serial string [first]")
     parser.add_argument("-c", "--channel", default=0, type=int,
-            help="channel: 3*board_num+dac_num [%(default)s]")
+                        help="channel: 3*board_num+dac_num [%(default)s]")
     parser.add_argument("-f", "--frame", default=0, type=int,
-            help="frame [%(default)s]")
-    parser.add_argument("-e", "--free", default=False,
-            action="store_true",
-            help="software trigger [%(default)s]")
-    parser.add_argument("-n", "--disarm", default=False,
-            action="store_true",
-            help="disarm group [%(default)s]")
-    parser.add_argument("-t", "--times",
-            default="np.arange(5)*1e-6",
-            help="sample times (s) [%(default)s]")
+                        help="frame [%(default)s]")
+    parser.add_argument("-e", "--free", default=False, action="store_true",
+                        help="software trigger [%(default)s]")
+    parser.add_argument("-n", "--disarm", default=False, action="store_true",
+                        help="disarm group [%(default)s]")
+    parser.add_argument("-t", "--times", default="np.arange(5)*1e-6",
+                        help="sample times (s) [%(default)s]")
     parser.add_argument("-v", "--voltages",
-            default="(1-np.cos(t/t[-1]*2*np.pi))/2",
-            help="sample voltages (V) [%(default)s]")
+                        default="(1-np.cos(t/t[-1]*2*np.pi))/2",
+                        help="sample voltages (V) [%(default)s]")
     parser.add_argument("-o", "--order", default=3, type=int,
-            help="interpolation (0: const, 1: lin, 2: quad, 3: cubic)"
-                 " [%(default)s]")
+                        help="interpolation (0: const, 1: lin, 2: quad,"
+                        " 3: cubic) [%(default)s]")
     parser.add_argument("-m", "--dcm", default=None, type=int,
-            help="choose fast 100MHz clock [%(default)s]")
+                        help="choose fast 100MHz clock [%(default)s]")
     parser.add_argument("-x", "--demo", default=False, action="store_true",
-            help="demo mode: pulse and chirp, 1V*ch+0.1V*frame [%(default)s]")
+                        help="demo mode: pulse and chirp, 1V*ch+0.1V*frame"
+                        " [%(default)s]")
     parser.add_argument("-p", "--plot", help="plot to file [%(default)s]")
     parser.add_argument("-d", "--debug", default=False,
-            action="store_true", help="debug communications")
+                        action="store_true", help="debug communications")
     parser.add_argument("-r", "--reset", default=False,
-            action="store_true", help="do reset before")
+                        action="store_true", help="do reset before")
     parser.add_argument("-b", "--bit", default=False,
-            action="store_true", help="do bit test")
+                        action="store_true", help="do bit test")
 
     args = parser.parse_args()
 
@@ -354,10 +287,10 @@ def _main():
     times = eval(args.times, globals(), {})
     voltages = eval(args.voltages, globals(), dict(t=times))
 
-    dev = Pdq2(serial=args.serial)
+    dev = Pdq2(args.serial, dev)
 
     if args.reset:
-        dev.write(b"\x00") # flush any escape
+        dev.write(b"\x00")  # flush any escape
         dev.write_cmd("RESET_EN")
         time.sleep(.1)
     if args.dcm:
@@ -382,8 +315,8 @@ def _main():
                 f.append(b"".join([
                     dev.frame(times, vi, order=args.order, end=False),
                     dev.frame(2*times, voltages, pi, fi, trigger=False),
-                    #dev.frame(2*times, 0*vi+.1, 0*pi, 0*fi+1e6),
-                    #dev.frame(times, 0*vi, order=args.order, silence=True),
+                    # dev.frame(2*times, 0*vi+.1, 0*pi, 0*fi+1e6),
+                    # dev.frame(times, 0*vi, order=args.order, silence=True),
                 ]))
             board, dac = divmod(channel, dev.num_dacs)
             dev.write_data(dev.add_mem_header(board, dac, dev.map_frames(f)))
@@ -392,14 +325,14 @@ def _main():
         t = np.arange(2*16) * 1.
         v = [-1, 0, -1]
         for i in range(15):
-            vi = 1<<i
+            vi = 1 << i
             v.extend([vi - 1, vi])
-        v = np.array(v)*dev.max_out/(1<<15)
+        v = np.array(v)*dev.max_out/(1 << 15)
         t, v = t[:3], v[:3]
-        #print(t, v)
+        # print(t, v)
         for channel in range(dev.num_channels):
-            dev.write_data(dev.multi_frame([(t, v)], channel=channel,
-                order=0, map=map, shift=15, stop=False, trigger=False))
+            dev.write_data(dev.multi_frame([(t, v)], channel=channel, order=0,
+                           map=map, shift=15, stop=False, trigger=False))
     else:
         tv = [(times, voltages)]
         map = [None] * dev.num_frames
@@ -427,4 +360,4 @@ def _main():
 
 
 if __name__ == "__main__":
-    _main()
+    main()

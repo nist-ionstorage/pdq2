@@ -63,8 +63,8 @@ class TB(Module):
     do_simulation.passive = True
 
 
-class SimFtdi:
-    def __init__(self, serial=None):
+class Sim:
+    def __init__(self):
         self.buffer = b""
 
     def write(self, data):
@@ -82,5 +82,4 @@ class SimFtdi:
 
 if __name__ == "__main__":
     from host import pdq2
-    pdq2.Ftdi = SimFtdi
-    pdq2._main()
+    pdq2.main(Sim())
