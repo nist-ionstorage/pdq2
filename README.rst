@@ -1,5 +1,7 @@
 .. image:: https://zenodo.org/badge/doi/10.5281/zenodo.11567.png
   :target: http://dx.doi.org/10.5281/zenodo.11567
+.. image:: https://travis-ci.org/nist-ionstorage/pdq2.svg?branch=master
+  :target: https://travis-ci.org/nist-ionstorage/pdq2
 
 PDQ2
 ====
