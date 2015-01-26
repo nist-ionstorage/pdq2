@@ -7,7 +7,6 @@ from scipy import interpolate
 
 from gateware.dac import Dac
 from host import pdq2
-pdq2.Ftdi = pdq2.FileFtdi
 
 
 class TB(Module):
@@ -34,17 +33,17 @@ class TB(Module):
 
 
 def _main():
-    #from migen.fhdl import verilog
-    #print(verilog.convert(Dac()))
+    # from migen.fhdl import verilog
+    # print(verilog.convert(Dac()))
 
     t = np.arange(0, 5) * .12e-6
     v = 9*(1-np.cos(t/t[-1]*2*np.pi))/2
-    p = pdq2.Pdq2()
+    p = pdq2.Pdq2(dev="dummy")
     p.freq = 100e6
     k = 3
     mem = p.map_frames([b"".join([
-            p.frame(t, v, order=k, end=False),
-            p.frame(2*t, v, 0*t+np.pi/2, 20e6*t/t[-1], trigger=False)
+        p.frame(t, v, order=k, end=False),
+        p.frame(2*t, v, 0*t+np.pi/2, 20e6*t/t[-1], trigger=False)
     ])])
     tb = TB(list(np.fromstring(mem, "<u2")))
     run_simulation(tb, ncycles=250, vcd_name="dac.vcd")
@@ -70,7 +69,7 @@ def _main():
             v[k] += v[k+1]
     plt.step(tt + 1/p.freq, vv1, "-g")
 
-    out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1<<16)
+    out = np.array(tb.outputs, np.uint16).view(np.int16)*20./(1 << 16)
     tim = np.arange(out.shape[0])/p.freq
     plt.step(tim - 22/p.freq, out, "-r")
     plt.show()
