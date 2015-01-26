@@ -1,0 +1,25 @@
+language: python
+python:
+  - "3.4"
+env:
+  global:
+    secure: "TaEIU4Must++rLSsB3eRe0vtPPsHhuDFIyUIRLp8P/c8Tq1isrzxeTfWeWU1sa5WVYsMXy8Q6JqgBYpopml3B0OtOcO7T10YSvrzcgIQOoSoInsRwr7ernSLFWDORDLPCW6BdRfVmTqFjGuGK9qor5J6LUMrAs4KQ+wthH1m8Wc="
+before_install:
+  - sudo apt-add-repository "deb http://archive.ubuntu.com/ubuntu saucy main universe"
+  - sudo apt-get -qq -y update
+  - sudo apt-get install -y iverilog
+  - pip install --src ./src -e git+https://github.com/m-labs/migen.git@master#egg=migen
+  - mkdir vpi
+  - iverilog-vpi --name=vpi/migensim src/migen/vpi/main.c src/migen/vpi/ipc.c
+  - wget http://www.phys.ethz.ch/~robertjo/xilinx_ise_14.7_s3_s6.tar.gz.gpg
+  - echo $secret | gpg --passphrase-fd 0 xilinx_ise_14.7_s3_s6.tar.gz.gpg
+  - sudo tar -C / -xzf xilinx_ise_14.7_s3_s6.tar.gz
+  - wget http://www.phys.ethz.ch/~robertjo/xilinx_webpack.lic.gpg
+  - echo $secret | gpg --passphrase-fd 0 xilinx_webpack.lic.gpg
+  - mkdir ~/.Xilinx
+  - mv xilinx_webpack.lic ~/.Xilinx/Xilinx.lic
+script:
+  - PYTHONPATH=. python3 testbench/escape.py
+  - python3 make.py
+notifications:
+  email: false
