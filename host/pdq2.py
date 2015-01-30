@@ -263,5 +263,6 @@ class Pdq2:
         warnings.warn("deprecated, use channels[i].ope_frame() etc",
                       DeprecationWarning)
         c = Channel()
-        c.frames = [self.frame(t, v, **kwargs) for t, v in times_voltages]
-        self.write_mem(channel, c.serialize())
+        for t, v in times_voltages:
+            c.frame().data = self.frame(t, v, **kwargs)
+        return c.serialize()

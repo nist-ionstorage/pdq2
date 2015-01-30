@@ -73,8 +73,8 @@ def main(dev=None):
     if args.demo:
         channels = [args.channel] if args.channel < dev.num_channels \
             else range(dev.num_channels)
-        frames = [args.frame] if args.frame < dev.num_frames \
-            else range(dev.num_frames)
+        frames = [args.frame] if args.frame < dev.channel[0].num_frames \
+            else range(dev.channel[0].num_frames)
         for channel in channels:
             f = []
             for frame in frames:
@@ -90,7 +90,7 @@ def main(dev=None):
             board, dac = divmod(channel, dev.num_dacs)
             dev.write_data(dev.add_mem_header(board, dac, dev.map_frames(f)))
     elif args.bit:
-        map = [0] * dev.num_frames
+        map = [0] * dev.channels[0].num_frames
         t = np.arange(2*16) * 1.
         v = [-1, 0, -1]
         for i in range(15):
@@ -100,13 +100,14 @@ def main(dev=None):
         t, v = t[:3], v[:3]
         # print(t, v)
         for channel in range(dev.num_channels):
-            dev.write_data(dev.multi_frame([(t, v)], channel=channel, order=0,
-                           map=map, shift=15, stop=False, trigger=False))
+            dev.write_mem(channel, dev.multi_frame(
+                [(t, v)], channel=channel, order=0, map=map,
+                shift=15, stop=False, trigger=False))
     else:
         tv = [(times, voltages)]
-        map = [None] * dev.num_frames
+        map = [None] * dev.channels[0].num_frames
         map[args.frame] = 0
-        dev.write_data(dev.multi_frame(tv, channel=args.channel,
+        dev.write_mem(args.channel, dev.multi_frame(tv, channel=args.channel,
                                        order=args.order, map=map))
 
     dev.write_cmd("START_EN")
