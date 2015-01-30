@@ -57,7 +57,7 @@ def _main():
     plt.plot(tt, vv, "+g")
 
     vv1 = []
-    dv = p.interpolate(t*p.freq, v, order=k)
+    dv = pdq2.Frame.interpolate(t*p.freq, v, k, t*p.freq)
     j = 0
     for i, tti in enumerate(tt):
         if tti >= t[j]:
