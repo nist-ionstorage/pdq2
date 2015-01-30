@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 class Frame:
     max_val = 1 << 15  # signed 16 bit DAC
-    max_out = 10.
     max_time = 1 << 16  # unsigned 16 bit timer
     cordic_gain = 1.
     for i in range(16):
@@ -40,13 +39,13 @@ class Frame:
         fmt = "<"
         ud = []
         for width, value in zip(widths, values):
-            if width > 2:
+            if width == 3:
                 ud.append(value & 0xffff)
                 fmt += "H"
                 value >>= 16
                 width -= 1
             ud.append(value)
-            fmt += "hi"[width - 1]
+            fmt += " hi"[width]
         return struct.pack(fmt, *ud)
 
     def dac_line(self, dt, *u, **kwargs):
@@ -59,24 +58,24 @@ class Frame:
         data = self.pack([1, 2, 3, 3, 1, 2, 2], upf)
         self.data += self.line(1, dt, data, **kwargs)
 
-    def segment(self, typ, dt, widths, v, first={}, mid={}, last={}):
+    def segment(self, typ, dt, widths, v, first={}, mid={}, last={}, shift=0):
         n = len(dt) - 1
-        for i, vi in enumerate(zip(dt, *v)):
-            dti, vi = vi[0], vi[1:]
-            data = self.pack(widths, vi)
+        for i, (dti, vi) in enumerate(zip(dt, v)):
+            opts = mid
             if i == 0:
                 opts = first
             elif i == n:
                 opts = last
-            else:
-                opts = mid
-            self.data += self.line(typ, dti, data, **opts)
+            data = self.pack(widths, vi)
+            line = self.line(typ, dti, data, shift=shift, **opts)
+            self.data += line
 
     @staticmethod
-    def interpolate(t, v, order, t_eval):
+    def interpolate(t, v, order, t_eval, widths=None):
         """Spline interpolating derivatives for t,v.
         The returned spline coefficients are one shorter than t
         """
+        # FIXME: does not ensure that interpolates do not clip
         s = interpolate.splrep(t, v, k=order)
         dv = np.array(interpolate.spalde(t_eval, s))
         # correct for adder chain latency
@@ -85,56 +84,41 @@ class Frame:
         if order > 2:
             dv[:, 1] += dv[:, 3]/6
             dv[:, 2] += dv[:, 3]
-        return np.rint(dv).astype("i8")
+        if widths is not None:
+            dv *= 1 << widths
+        return np.rint(dv).astype(np.int64)
 
-    def line_times(self, t, freq, shift, tr):
-        t = t*freq/2**shift
-        if tr is None:
-            tr = t
-        else:
-            tr = tr*freq/2**shift
-        tr = np.rint(tr).astype(np.uint16)
-        dt = np.diff(tr)
+    def line_times(self, t):
+        dt = np.diff(t)
         assert np.all(dt >= 0)
         assert np.all(dt < 1 << 16)
-        return t, tr[:-1], dt
+        return t[:-1], dt
 
-    def dac_segment(self, t, v,
-                    first={}, mid={}, last={},
-                    freq=50e6, shift=0, tr=None, order=3, stop=True):
-        t, tr, dt = self.line_times(t, freq, shift, tr)
-        v = np.clip(v/self.max_out, -1, 1)*self.max_val
-        # FIXME: does not ensure that interpolates do not clip
-        order = min(order, len(t) - 1)
-        dv = self.interpolate(t, v, order, tr)
-        self.segment(0, dt, [1, 2, 3, 3], dv, first, mid,
-                     mid if stop else last)
-        if stop:
-            self.line(0, 1, self.pack([1], [int(v[-1])]), **last)
+    def dac_segment(self, t, v, first={}, mid={}, last={},
+                    shift=0, tr=None, order=3):
+        if tr is None:
+            tr = np.rint(t).astype(np.uint32)
+        tr, dt = self.line_times(tr)
+        widths = np.array([1, 2, 3, 3])
+        dv = self.interpolate(t, v, order, tr, 16*(widths[:order + 1] - 1))
+        self.segment(0, dt, widths, dv, first, mid, last, shift)
 
-    def dds_segment(self, t, v, p=None, f=None,
-                    first={}, mid={}, last={},
-                    freq=50e6, shift=0, tr=None, order=3, stop=True):
+    def dds_segment(self, t, v, p=None, f=None, first={}, mid={}, last={},
+                    shift=0, tr=None, order=3):
         if order < 3:
-            assert p is None and f is None
-        t, tr, dt = self.line_times(t, freq, shift, tr)
-        v = np.clip(v/self.max_out, -1, 1)*self.max_val/self.cordic_gain
+            assert p is None
+        if tr is None:
+            tr = np.rint(t).astype(np.uint32)
+        tr, dt = self.line_times(tr)
+        widths = np.array([1, 2, 3, 3, 1, 2, 2])
+        dv = self.interpolate(t, v, order, tr, 16*(widths[:order + 1] - 1))
         if p is not None:
-            p = np.rint(p/np.pi*self.max_val).astype(np.int16)
-        if v is not None:
-            f = f/freq*self.max_val
-        # FIXME: does not ensure that interpolates do not clip
-        dv = self.interpolate(t, v, order, tr)
-        if p is not None:
-            dv = np.concatenate((dv, p[:-1, None]), axis=1)  # FIXME: use tr
-        if f is not None:
-            dv = np.concatenate((dv, self.interpolate(t, f, 1, tr)), axis=1)
-        self.segment(1, dt, [1, 2, 3, 3, 1, 2, 2], dv, first, mid,
-                     mid if stop else last)
-        if stop:
-            data = self.pack([1, 2, 3, 3, 1, 2, 2],
-                             [int(v[-1]), 0, 0, 0, int(p[-1]), int(f[-1]), 0])
-            self.line(0, 1, data, **last)
+            dp = self.interpolate(t, p, 1, tr)[:, :1]
+            dv = np.concatenate((dv, dp), axis=1)
+            if f is not None:
+                df = self.interpolate(t, f, 1, tr, 16*(widths[-2:] - 1))
+                dv = np.concatenate((dv, df), axis=1)
+        self.segment(1, dt, widths, dv, first, mid, last, shift)
 
 
 class Channel:
@@ -177,6 +161,7 @@ class Pdq2:
     num_boards = 3
     num_channels = num_dacs*num_boards
     freq = 50e6  # samples/s
+    max_out = 10.
 
     _escape = b"\xa5"
     _commands = {
@@ -244,12 +229,27 @@ class Pdq2:
         first = dict(trigger=trigger, clear=clear, aux=aux)
         mid = dict(aux=aux)
         last = dict(silence=silence, end=end, wait=wait, aux=aux)
-        if p is None and f is None:
-            frame.dac_segment(t, v, first, mid, last, self.freq, shift,
-                              order=order, stop=stop)
+        t = t*(self.freq/2**shift)
+        v = np.clip(v/self.max_out, -1, 1)*frame.max_val
+        order = min(order, len(t) - 1)
+        if p is None:
+            frame.dac_segment(t, v, first, mid, mid if stop else last,
+                              shift, order=order)
+            if stop:
+                data = frame.pack([1], [int(v[-1])])
+                frame.data += frame.line(0, 2, data, **last)
         else:
-            frame.dds_segment(t, v, p, f, first, mid, last, self.freq, shift,
-                              order=order, stop=stop)
+            v /= frame.cordic_gain
+            p = p/np.pi*frame.max_val
+            if f is not None:
+                f = f/self.freq*frame.max_val
+            frame.dds_segment(t, v, p, f, first, mid, mid if stop else last,
+                              shift, order=order)
+            if stop:
+                data = frame.pack([1, 2, 3, 3, 1, 2],
+                                  [int(v[-1]), 0, 0, 0,
+                                   int(p[-1]), int(f[-1])])
+                frame.data += frame.line(1, 2, data, **last)
         return frame.data
 
     def map_frames(self, frames):
