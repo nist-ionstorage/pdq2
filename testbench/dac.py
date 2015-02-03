@@ -37,14 +37,18 @@ def _main():
     # print(verilog.convert(Dac()))
 
     t = np.arange(7) * 18
+    t = t.astype(np.int32)
     v = (1 << 14)*(1 - np.cos(t/t[-1]*2*np.pi))/2
+    v = v.astype(np.int16)
     k = 3
     p = pdq2.Pdq2(dev="dummy")
-    mem = p.map_frames([b"".join([
-        p.frame(t/p.freq, 10*v/pdq2.Frame.max_val, order=k, end=False),
-        p.frame(2*t/p.freq, 10*v/pdq2.Frame.max_val,
-                0*t + np.pi/2, 20e6*t/t[-1], trigger=False)
-    ])])
+    c = p.channels[0]
+    s = c.new_segment()
+    s.dac(t, v, order=k, first=dict(trigger=True))
+    s.dds(2*t, (v/s.cordic_gain).astype(np.int16),
+          0*t + (1 << 14), (t/t[-1]*(1 << 13)).astype(np.int16),
+          first=dict(trigger=False))
+    mem = c.serialize()
     tb = TB(list(np.fromstring(mem, "<u2")))
     run_simulation(tb, ncycles=400, vcd_name="dac.vcd")
 
@@ -57,7 +61,7 @@ def _main():
 
     vv1 = []
     widths = np.array([0, 1, 2, 2])*16
-    dv = pdq2.Frame.interpolate(t, v, k, t[:-1], widths)
+    dv = pdq2.Segment.interpolate(t, v, k, t[:-1], widths)
     dv = dv/2**widths
 
     for i, (ti, dvi) in enumerate(zip(t, dv)):

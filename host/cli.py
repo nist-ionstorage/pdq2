@@ -104,11 +104,12 @@ def main(dev=None):
                 [(t, v)], channel=channel, order=0, map=map,
                 shift=15, stop=False, trigger=False))
     else:
-        tv = [(times, voltages)]
-        map = [None] * dev.channels[0].num_frames
-        map[args.frame] = 0
-        dev.write_mem(args.channel, dev.multi_frame(tv, channel=args.channel,
-                                       order=args.order, map=map))
+        c = dev.channels[args.channel]
+        s = dev.segment(times, voltages, order=args.order)
+        c.segments.append(s)
+        map = [None] * c.num_frames
+        map[args.frame] = s
+        dev.write_channel(args.channel, map)
 
     dev.write_cmd("START_EN")
     if not args.disarm:

@@ -11,7 +11,7 @@ import serial
 logger = logging.getLogger(__name__)
 
 
-class Frame:
+class Segment:
     max_val = 1 << 15  # signed 16 bit DAC
     max_time = 1 << 16  # unsigned 16 bit timer
     cordic_gain = 1.
@@ -21,9 +21,8 @@ class Frame:
     def __init__(self):
         self.data = b""
 
-    @staticmethod
-    def line(typ, dt, data, trigger=False, silence=False, aux=False,
-             shift=0, end=False, clear=False, wait=False):
+    def line(self, typ, dt, data, trigger=False, silence=False,
+             aux=False, shift=0, end=False, clear=False, wait=False):
         assert len(data) % 2 == 0, data
         assert len(data)//2 <= 14
         #assert dt*(1 << shift) > 1 + len(data)//2
@@ -32,7 +31,7 @@ class Frame:
             (aux << 8) | (shift << 9) | (end << 13) | (clear << 14) |
             (wait << 15)
         )
-        return struct.pack("<HH", head, dt) + data
+        self.data += struct.pack("<HH", head, dt) + data
 
     @staticmethod
     def pack(widths, values):
@@ -48,17 +47,7 @@ class Frame:
             fmt += " hi"[width]
         return struct.pack(fmt, *ud)
 
-    def dac_line(self, dt, *u, **kwargs):
-        # u0 u1 u2 u3
-        data = self.pack([1, 2, 3, 3], u)
-        self.data += self.line(0, dt, data, **kwargs)
-
-    def dds_line(self, dt, *upf, **kwargs):
-        # u0 u1 u2 u3 p0 f0 f1
-        data = self.pack([1, 2, 3, 3, 1, 2, 2], upf)
-        self.data += self.line(1, dt, data, **kwargs)
-
-    def segment(self, typ, dt, widths, v, first={}, mid={}, last={}, shift=0):
+    def lines(self, typ, dt, widths, v, first={}, mid={}, last={}, shift=0):
         n = len(dt) - 1
         for i, (dti, vi) in enumerate(zip(dt, v)):
             opts = mid
@@ -67,8 +56,7 @@ class Frame:
             elif i == n:
                 opts = last
             data = self.pack(widths, vi)
-            line = self.line(typ, dti, data, shift=shift, **opts)
-            self.data += line
+            self.line(typ, dti, data, shift=shift, **opts)
 
     @staticmethod
     def interpolate(t, v, order, t_eval, widths=None):
@@ -91,20 +79,20 @@ class Frame:
     def line_times(self, t):
         dt = np.diff(t)
         assert np.all(dt >= 0)
-        assert np.all(dt < 1 << 16)
+        assert np.all(dt < self.max_time)
         return t[:-1], dt
 
-    def dac_segment(self, t, v, first={}, mid={}, last={},
-                    shift=0, tr=None, order=3):
+    def dac(self, t, v, first={}, mid={}, last={},
+            shift=0, tr=None, order=3):
         if tr is None:
             tr = np.rint(t).astype(np.uint32)
         tr, dt = self.line_times(tr)
         widths = np.array([1, 2, 3, 3])
         dv = self.interpolate(t, v, order, tr, 16*(widths[:order + 1] - 1))
-        self.segment(0, dt, widths, dv, first, mid, last, shift)
+        self.lines(0, dt, widths, dv, first, mid, last, shift)
 
-    def dds_segment(self, t, v, p=None, f=None, first={}, mid={}, last={},
-                    shift=0, tr=None, order=3):
+    def dds(self, t, v, p=None, f=None, first={}, mid={}, last={},
+            shift=0, tr=None, order=3):
         if order < 3:
             assert p is None
         if tr is None:
@@ -118,7 +106,7 @@ class Frame:
             if f is not None:
                 df = self.interpolate(t, f, 1, tr, 16*(widths[-2:] - 1))
                 dv = np.concatenate((dv, df), axis=1)
-        self.segment(1, dt, widths, dv, first, mid, last, shift)
+        self.lines(1, dt, widths, dv, first, mid, last, shift)
 
 
 class Channel:
@@ -126,31 +114,35 @@ class Channel:
     num_frames = 8
 
     def __init__(self):
-        self.frames = []
+        self.segments = []
+
+    def new_segment(self):
+        # assert len(self.segments) < self.num_frames
+        segment = Segment()
+        self.segments.append(segment)
+        return segment
 
     def place(self):
         addr = self.num_frames
-        for frame in self.frames:
-            frame.addr = addr
-            addr += len(frame.data)//2
+        for segment in self.segments:
+            segment.addr = addr
+            addr += len(segment.data)//2
         assert addr <= self.max_data, addr
         return addr
 
-    def table(self, frames):
+    def table(self, entry=None):
         table = [0] * self.num_frames
-        for i, frame in enumerate(frames):
-            table[i] = frame.addr
+        if entry is None:
+            entry = self.segments
+        for i, frame in enumerate(entry):
+            if frame is not None:
+                table[i] = frame.addr
         return struct.pack("<" + "H"*self.num_frames, *table)
 
-    def serialize(self):
+    def serialize(self, entry=None):
         self.place()
-        frames = b"".join([frame.data for frame in self.frames])
-        return self.table(self.frames) + frames
-
-    def frame(self):
-        frame = Frame()
-        self.frames.append(frame)
-        return frame
+        data = b"".join([segment.data for segment in self.segments])
+        return self.table(entry) + data
 
 
 class Pdq2:
@@ -206,63 +198,55 @@ class Pdq2:
         data = data.replace(self._escape, self._escape + self._escape)
         self.write(data)
 
+    def write_channel(self, channel, entry=None):
+        self.write_mem(channel, self.channels[channel].serialize(entry))
+
     def write_all(self):
         for i, channel in enumerate(self.channels):
             self.write_mem(i, channel.serialize())
 
-    def write_table(self, channel, frames):
-        # no frame placement
-        # no frame writing
-        self.write_mem(channel, self.channels[channel].table(frames))
+    def write_table(self, channel, segments=None):
+        # no segment placement
+        # no segment writing
+        self.write_mem(channel, self.channels[channel].table(segments))
 
-    def write_frame(self, channel, frame):
+    def write_segment(self, channel, segment):
         # no collision check
-        f = self.channels[channel].frames[frame]
-        self.write_mem(channel, f.data, f.adr)
+        s = self.channels[channel].segments[segment]
+        self.write_mem(channel, s.data, s.adr)
 
-    def frame(self, t, v, p=None, f=None,
-              order=3, aux=False, shift=0, trigger=True, end=True,
-              silence=False, stop=True, clear=True, wait=False):
-        warnings.warn("deprecated, use channels[i].open_frame() etc",
-                      DeprecationWarning)
-        frame = Frame()
+    def segment(self, t, v, p=None, f=None,
+                order=3, aux=False, shift=0, trigger=True, end=True,
+                silence=False, stop=True, clear=True, wait=False):
+        warnings.warn("deprecated", DeprecationWarning)
+        segment = Segment()
         first = dict(trigger=trigger, clear=clear, aux=aux)
         mid = dict(aux=aux)
         last = dict(silence=silence, end=end, wait=wait, aux=aux)
         t = t*(self.freq/2**shift)
-        v = np.clip(v/self.max_out, -1, 1)*frame.max_val
+        v = np.clip(v/self.max_out, -1, 1)*segment.max_val
         order = min(order, len(t) - 1)
         if p is None:
-            frame.dac_segment(t, v, first, mid, mid if stop else last,
-                              shift, order=order)
+            segment.dac(t, v, first, mid, mid if stop else last,
+                        shift, order=order)
             if stop:
-                data = frame.pack([1], [int(v[-1])])
-                frame.data += frame.line(0, 2, data, **last)
+                segment.line(0, 2, segment.pack([1], [int(v[-1])]), **last)
         else:
-            v /= frame.cordic_gain
-            p = p/np.pi*frame.max_val
+            v /= segment.cordic_gain
+            p = p/np.pi*segment.max_val
             if f is not None:
-                f = f/self.freq*frame.max_val
-            frame.dds_segment(t, v, p, f, first, mid, mid if stop else last,
-                              shift, order=order)
+                f = f/self.freq*segment.max_val
+            segment.dds(t, v, p, f, first, mid, mid if stop else last,
+                        shift, order=order)
             if stop:
-                data = frame.pack([1, 2, 3, 3, 1, 2],
-                                  [int(v[-1]), 0, 0, 0,
-                                   int(p[-1]), int(f[-1])])
-                frame.data += frame.line(1, 2, data, **last)
-        return frame.data
+                data = segment.pack([1, 2, 3, 3, 1, 2],
+                                    [int(v[-1]), 0, 0, 0,
+                                     int(p[-1]), int(f[-1])])
+                segment.line(1, 2, data, **last)
+        return segment
 
-    def map_frames(self, frames):
+    def multi_segment(self, times_voltages, channel, map=None, **kwargs):
         warnings.warn("deprecated", DeprecationWarning)
-        c = Channel()
-        for fd in frames:
-            c.frame().data = fd
-        return c.serialize()
-
-    def multi_frame(self, times_voltages, channel, map=None, **kwargs):
-        warnings.warn("deprecated, use channels[i].ope_frame() etc",
-                      DeprecationWarning)
-        c = Channel()
-        for t, v in times_voltages:
-            c.frame().data = self.frame(t, v, **kwargs)
-        return c.serialize()
+        c = self.channels[channel]
+        c.segments = [self.segment(t, v, **kwargs) for t, v in times_voltages]
+        return c.serialize(map)
