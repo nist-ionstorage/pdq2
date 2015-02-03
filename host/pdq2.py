@@ -83,16 +83,18 @@ class Segment:
         return t[:-1], dt
 
     def dac(self, t, v, first={}, mid={}, last={},
-            shift=0, tr=None, order=3):
+            shift=0, tr=None, order=3, stop=True):
         if tr is None:
             tr = np.rint(t).astype(np.uint32)
         tr, dt = self.line_times(tr)
         widths = np.array([1, 2, 3, 3])
         dv = self.interpolate(t, v, order, tr, 16*(widths[:order + 1] - 1))
-        self.lines(0, dt, widths, dv, first, mid, last, shift)
+        self.lines(0, dt, widths, dv, first, mid, mid if stop else last, shift)
+        if stop:
+            self.line(0, 2, self.pack([1], v[-1:]), **last)
 
     def dds(self, t, v, p=None, f=None, first={}, mid={}, last={},
-            shift=0, tr=None, order=3):
+            shift=0, tr=None, order=3, stop=True):
         if order < 3:
             assert p is None
         if tr is None:
@@ -106,7 +108,11 @@ class Segment:
             if f is not None:
                 df = self.interpolate(t, f, 1, tr, 16*(widths[-2:] - 1))
                 dv = np.concatenate((dv, df), axis=1)
-        self.lines(1, dt, widths, dv, first, mid, last, shift)
+        self.lines(1, dt, widths, dv, first, mid, mid if stop else last, shift)
+        if stop:
+            data = self.pack([1, 2, 3, 3, 1, 2],
+                             [v[-1], 0, 0, 0, p[-1], f[-1]])
+            self.line(1, 2, data, **last)
 
 
 class Channel:
@@ -223,26 +229,17 @@ class Pdq2:
         first = dict(trigger=trigger, clear=clear, aux=aux)
         mid = dict(aux=aux)
         last = dict(silence=silence, end=end, wait=wait, aux=aux)
-        t = t*(self.freq/2**shift)
-        v = np.clip(v/self.max_out, -1, 1)*segment.max_val
+        t = (t*(self.freq/2**shift)).astype(np.int)
+        v = (np.clip(v/self.max_out, -1, 1)*segment.max_val).astype(np.int16)
         order = min(order, len(t) - 1)
         if p is None:
-            segment.dac(t, v, first, mid, mid if stop else last,
-                        shift, order=order)
-            if stop:
-                segment.line(0, 2, segment.pack([1], [int(v[-1])]), **last)
+            segment.dac(t, v, first, mid, last, shift, order=order, stop=stop)
         else:
-            v /= segment.cordic_gain
-            p = p/np.pi*segment.max_val
+            v = (v/segment.cordic_gain).astype(np.int16)
+            p = (p/np.pi*segment.max_val).astype(np.int16)
             if f is not None:
-                f = f/self.freq*segment.max_val
-            segment.dds(t, v, p, f, first, mid, mid if stop else last,
-                        shift, order=order)
-            if stop:
-                data = segment.pack([1, 2, 3, 3, 1, 2],
-                                    [int(v[-1]), 0, 0, 0,
-                                     int(p[-1]), int(f[-1])])
-                segment.line(1, 2, data, **last)
+                f = (f/self.freq*segment.max_val).astype(np.int16)
+            segment.dds(t, v, p, f, first, mid, last, shift, order=order)
         return segment
 
     def multi_segment(self, times_voltages, channel, map=None, **kwargs):
