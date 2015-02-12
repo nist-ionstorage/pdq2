@@ -12,12 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 class Segment:
-    max_val = 1 << 15  # signed 16 bit DAC
-    max_time = 1 << 16  # unsigned 16 bit timer
-    cordic_gain = 1.
-    for i in range(16):
-        cordic_gain *= np.sqrt(1 + 2**(-2*i))
-
     def __init__(self):
         self.data = b""
 
@@ -79,7 +73,7 @@ class Segment:
     def line_times(self, t):
         dt = np.diff(t)
         assert np.all(dt >= 0)
-        assert np.all(dt < self.max_time)
+        assert np.all(dt < (1 << 16))
         return t[:-1], dt
 
     def dac(self, t, v, first={}, mid={}, last={},
@@ -91,7 +85,7 @@ class Segment:
         dv = self.interpolate(t, v, order, tr, 16*(widths[:order + 1] - 1))
         self.lines(0, dt, widths, dv, first, mid, mid if stop else last, shift)
         if stop:
-            self.line(0, 2, self.pack([1], v[-1:]), **last)
+            self.line(0, 2, self.pack([1], [int(round(v[-1]))]), **last)
 
     def dds(self, t, v, p=None, f=None, first={}, mid={}, last={},
             shift=0, tr=None, order=3, stop=True):
@@ -110,14 +104,24 @@ class Segment:
                 dv = np.concatenate((dv, df), axis=1)
         self.lines(1, dt, widths, dv, first, mid, mid if stop else last, shift)
         if stop:
-            data = self.pack([1, 2, 3, 3, 1, 2],
-                             [v[-1], 0, 0, 0, p[-1], f[-1]])
-            self.line(1, 2, data, **last)
+            dv = [int(round(v[-1])), 0, 0, 0]
+            if p is not None:
+                dv.append(int(round(p[-1])))
+                if f is not None:
+                    dv.append(int(round(f[-1])))
+            self.line(1, 2, self.pack(widths, dv), **last)
 
 
 class Channel:
     max_data = 4*(1 << 10)  # 8kx16 8kx16 4kx16
     num_frames = 8
+    max_val = 1 << 15  # int16 bit DAC
+    max_time = 1 << 16  # uint16 bit timer
+    cordic_gain = 1.
+    for i in range(16):
+        cordic_gain *= np.sqrt(1 + 2**(-2*i))
+    max_out = 10.
+    freq = 50e6  # samples/s
 
     def __init__(self):
         self.segments = []
@@ -126,6 +130,29 @@ class Channel:
         # assert len(self.segments) < self.num_frames
         segment = Segment()
         self.segments.append(segment)
+        return segment
+
+    def segment(self, t, v, p=None, f=None,
+                order=3, aux=False, shift=0, trigger=True, end=True,
+                silence=False, stop=True, clear=True, wait=False):
+        segment = self.new_segment()
+        t = t*(self.freq/2**shift)
+        v = np.clip(v/self.max_out, -1, 1)
+        order = min(order, len(t) - 1)
+        first = dict(trigger=trigger, clear=clear, aux=aux)
+        mid = dict(aux=aux)
+        last = dict(silence=silence, end=end, wait=wait, aux=aux)
+        if p is None:
+            v = v*self.max_val
+            segment.dac(t, v, first, mid, last, shift=shift, order=order,
+                        stop=stop)
+        else:
+            v = v*(self.max_val/self.cordic_gain)
+            p = p*(self.max_val/np.pi)
+            if f is not None:
+                f = f*(self.max_val/self.freq)
+            segment.dds(t, v, p, f, first, mid, last, shift, order=order,
+                        stop=stop)
         return segment
 
     def place(self):
@@ -158,8 +185,6 @@ class Pdq2:
     num_dacs = 3
     num_boards = 3
     num_channels = num_dacs*num_boards
-    freq = 50e6  # samples/s
-    max_out = 10.
 
     _escape = b"\xa5"
     _commands = {
@@ -175,6 +200,11 @@ class Pdq2:
             dev = serial.serial_for_url(url)
         self.dev = dev
         self.channels = [Channel() for i in range(self.num_channels)]
+        self.set_freq()
+
+    def set_freq(self, f=50e6):
+        for c in self.channels:
+            c.freq = f
 
     def close(self):
         self.dev.close()
@@ -205,11 +235,13 @@ class Pdq2:
         self.write(data)
 
     def write_channel(self, channel, entry=None):
-        self.write_mem(channel, self.channels[channel].serialize(entry))
+        self.write_mem(self.channels.index(channel),
+                       channel.serialize(entry))
 
     def write_all(self):
-        for i, channel in enumerate(self.channels):
-            self.write_mem(i, channel.serialize())
+        for channel in self.channels:
+            self.write_mem(self.channels.index(channel),
+                           channel.serialize())
 
     def write_table(self, channel, segments=None):
         # no segment placement
@@ -221,29 +253,10 @@ class Pdq2:
         s = self.channels[channel].segments[segment]
         self.write_mem(channel, s.data, s.adr)
 
-    def segment(self, t, v, p=None, f=None,
-                order=3, aux=False, shift=0, trigger=True, end=True,
-                silence=False, stop=True, clear=True, wait=False):
-        warnings.warn("deprecated", DeprecationWarning)
-        segment = Segment()
-        first = dict(trigger=trigger, clear=clear, aux=aux)
-        mid = dict(aux=aux)
-        last = dict(silence=silence, end=end, wait=wait, aux=aux)
-        t = (t*(self.freq/2**shift)).astype(np.int)
-        v = (np.clip(v/self.max_out, -1, 1)*segment.max_val).astype(np.int16)
-        order = min(order, len(t) - 1)
-        if p is None:
-            segment.dac(t, v, first, mid, last, shift, order=order, stop=stop)
-        else:
-            v = (v/segment.cordic_gain).astype(np.int16)
-            p = (p/np.pi*segment.max_val).astype(np.int16)
-            if f is not None:
-                f = (f/self.freq*segment.max_val).astype(np.int16)
-            segment.dds(t, v, p, f, first, mid, last, shift, order=order)
-        return segment
-
     def multi_segment(self, times_voltages, channel, map=None, **kwargs):
         warnings.warn("deprecated", DeprecationWarning)
         c = self.channels[channel]
-        c.segments = [self.segment(t, v, **kwargs) for t, v in times_voltages]
+        del c.segments[:]
+        for t, v in times_voltages:
+            c.segment(t, v, **kwargs)
         return c.serialize(map)

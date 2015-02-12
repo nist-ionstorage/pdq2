@@ -71,6 +71,7 @@ def main(dev=None):
     dev.write_cmd("START_DIS")
 
     if args.demo:
+        raise NotImplementedError
         channels = [args.channel] if args.channel < dev.num_channels \
             else range(dev.num_channels)
         frames = [args.frame] if args.frame < dev.channel[0].num_frames \
@@ -90,6 +91,7 @@ def main(dev=None):
             board, dac = divmod(channel, dev.num_dacs)
             dev.write_data(dev.add_mem_header(board, dac, dev.map_frames(f)))
     elif args.bit:
+        raise NotImplementedError
         map = [0] * dev.channels[0].num_frames
         t = np.arange(2*16) * 1.
         v = [-1, 0, -1]
@@ -105,11 +107,10 @@ def main(dev=None):
                 shift=15, stop=False, trigger=False))
     else:
         c = dev.channels[args.channel]
-        s = dev.segment(times, voltages, order=args.order)
-        c.segments.append(s)
+        s = c.segment(times, voltages, order=args.order)
         map = [None] * c.num_frames
         map[args.frame] = s
-        dev.write_channel(args.channel, map)
+        dev.write_channel(c)
 
     dev.write_cmd("START_EN")
     if not args.disarm:

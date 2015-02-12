@@ -45,7 +45,7 @@ def _main():
     c = p.channels[0]
     s = c.new_segment()
     s.dac(t, v, order=k, first=dict(trigger=True))
-    s.dds(2*t, (v/s.cordic_gain).astype(np.int16),
+    s.dds(2*t, (v/c.cordic_gain).astype(np.int16),
           0*t + (1 << 14), (t/t[-1]*(1 << 13)).astype(np.int16),
           first=dict(trigger=False))
     mem = c.serialize()
