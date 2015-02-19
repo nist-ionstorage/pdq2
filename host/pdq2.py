@@ -59,7 +59,7 @@ class Segment:
         """Spline interpolating derivatives for t,v.
         The returned spline coefficients are one shorter than t
         """
-        if len(t) == 1:
+        if order == 0:
             return np.rint(v[:, None])
         # FIXME: does not ensure that interpolates do not clip
         s = interpolate.splrep(t, v, k=order)
@@ -98,12 +98,11 @@ class Segment:
 
     def dds(self, t, v, p=None, f=None, first={}, mid={}, last={},
             shift=0, tr=None, order=3, stop=True):
-        if order < 3:
-            assert p is None
-        tr, dt = self.line_times(t, tr)
         widths = np.array([1, 2, 3, 3, 1, 2, 2])
+        tr, dt = self.line_times(t, tr)
         dv = self.interpolate(t, v, order, tr, widths[:order + 1] - 1)
         if p is not None:
+            assert order == 3
             dp = self.interpolate(t, p, 1, tr)[:, :1]
             dv = np.concatenate((dv, dp), axis=1)
             if f is not None:
@@ -158,8 +157,8 @@ class Channel:
             p = p*(self.max_val/np.pi)
             if f is not None:
                 f = f*(self.max_val/self.freq)
-            segment.dds(t, v, p, f, first, mid, last, shift, order=order,
-                        stop=stop)
+            segment.dds(t, v, p, f, first, mid, last, shift=shift,
+                        order=order, stop=stop)
         return segment
 
     def place(self):
