@@ -100,7 +100,7 @@ class Segment:
             shift=0, tr=None, order=3, stop=True):
         if order < 3:
             assert p is None
-        tr, dt = self.line_times(tr)
+        tr, dt = self.line_times(t, tr)
         widths = np.array([1, 2, 3, 3, 1, 2, 2])
         dv = self.interpolate(t, v, order, tr, widths[:order + 1] - 1)
         if p is not None:
