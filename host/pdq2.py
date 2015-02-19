@@ -43,6 +43,8 @@ class Segment:
 
     def lines(self, typ, dt, widths, v, first={}, mid={}, last={}, shift=0):
         n = len(dt) - 1
+        dt = dt.astype(np.uint16)
+        v = v.astype(np.int64)
         for i, (dti, vi) in enumerate(zip(dt, v)):
             opts = mid
             if i == 0:
@@ -57,9 +59,14 @@ class Segment:
         """Spline interpolating derivatives for t,v.
         The returned spline coefficients are one shorter than t
         """
+        if len(t) == 1:
+            return np.rint(v[:, None])
         # FIXME: does not ensure that interpolates do not clip
         s = interpolate.splrep(t, v, k=order)
-        dv = np.array(interpolate.spalde(t_eval, s))
+        # FIXME: needs k knots outside t_eval
+        # dv = np.array(interpolate.spalde(t_eval, s))
+        dv = np.array([interpolate.splev(t_eval, s, der=i, ext=0)
+                       for i in range(order + 1)]).T
         # correct for adder chain latency
         if order > 1:
             dv[:, 1] += dv[:, 2]/2
@@ -67,22 +74,24 @@ class Segment:
             dv[:, 1] += dv[:, 3]/6
             dv[:, 2] += dv[:, 3]
         if widths is not None:
-            dv *= 1 << widths
-        return np.rint(dv).astype(np.int64)
+            dv *= 1 << 16*widths
+        return np.rint(dv)
 
-    def line_times(self, t):
-        dt = np.diff(t)
+    def line_times(self, t, tr=None):
+        if tr is None:
+            tr = np.rint(t)
+        if len(tr) == 1:
+            return None, np.array([1])
+        dt = np.diff(tr)
         assert np.all(dt >= 0)
         assert np.all(dt < (1 << 16))
-        return t[:-1], dt
+        return tr[:-1], dt
 
     def dac(self, t, v, first={}, mid={}, last={},
             shift=0, tr=None, order=3, stop=True):
-        if tr is None:
-            tr = np.rint(t).astype(np.uint32)
-        tr, dt = self.line_times(tr)
         widths = np.array([1, 2, 3, 3])
-        dv = self.interpolate(t, v, order, tr, 16*(widths[:order + 1] - 1))
+        tr, dt = self.line_times(t, tr)
+        dv = self.interpolate(t, v, order, tr, widths[:order + 1] - 1)
         self.lines(0, dt, widths, dv, first, mid, mid if stop else last, shift)
         if stop:
             self.line(0, 2, self.pack([1], [int(round(v[-1]))]), **last)
@@ -91,16 +100,14 @@ class Segment:
             shift=0, tr=None, order=3, stop=True):
         if order < 3:
             assert p is None
-        if tr is None:
-            tr = np.rint(t).astype(np.uint32)
         tr, dt = self.line_times(tr)
         widths = np.array([1, 2, 3, 3, 1, 2, 2])
-        dv = self.interpolate(t, v, order, tr, 16*(widths[:order + 1] - 1))
+        dv = self.interpolate(t, v, order, tr, widths[:order + 1] - 1)
         if p is not None:
             dp = self.interpolate(t, p, 1, tr)[:, :1]
             dv = np.concatenate((dv, dp), axis=1)
             if f is not None:
-                df = self.interpolate(t, f, 1, tr, 16*(widths[-2:] - 1))
+                df = self.interpolate(t, f, 1, tr, widths[-2:] - 1)
                 dv = np.concatenate((dv, df), axis=1)
         self.lines(1, dt, widths, dv, first, mid, mid if stop else last, shift)
         if stop:
