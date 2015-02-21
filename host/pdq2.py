@@ -226,13 +226,6 @@ class Pdq2:
             cmd |= 1
         self.write(self._escape + bytes([cmd]))
 
-    def write_cmd(self, cmd):
-        warnings.warn("deprecated, use cmd()", DeprecationWarning)
-        if cmd.endswith("_EN"):
-            self.cmd(cmd[:-len("_EN")], True)
-        else:
-            self.cmd(cmd[:-len("_DIS")], False)
-
     def write_mem(self, channel, data, start_addr=0):
         board, dac = divmod(channel, self.num_dacs)
         data = struct.pack("<HHH", (board << 4) | dac, start_addr,

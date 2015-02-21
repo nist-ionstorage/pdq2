@@ -60,15 +60,15 @@ def main(dev=None):
 
     if args.reset:
         dev.write(b"\x00")  # flush any escape
-        dev.write_cmd("RESET_EN")
+        dev.cmd("RESET", True)
         time.sleep(.1)
     if args.dcm:
-        dev.write_cmd("DCM_EN")
+        dev.cmd("DCM", True)
         dev.freq = 100e6
     elif args.dcm == 0:
-        dev.write_cmd("DCM_DIS")
+        dev.cmd("DCM", False)
         dev.freq = 50e6
-    dev.write_cmd("START_DIS")
+    dev.cmd("START", False)
 
     if args.demo:
         raise NotImplementedError
@@ -112,11 +112,11 @@ def main(dev=None):
         map[args.frame] = s
         dev.write_channel(c)
 
-    dev.write_cmd("START_EN")
+    dev.cmd("START", True)
     if not args.disarm:
-        dev.write_cmd("ARM_EN")
+        dev.cmd("ARM", True)
     if args.free:
-        dev.write_cmd("TRIGGER_EN")
+        dev.cmd("TRIGGER", True)
     dev.close()
 
     if args.plot:
