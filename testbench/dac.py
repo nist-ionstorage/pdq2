@@ -60,9 +60,9 @@ def _main():
     plt.plot(tt, vv, "+g")
 
     vv1 = []
-    widths = np.array([0, 1, 2, 2])*16
+    widths = np.array([0, 1, 2, 2])
     dv = pdq2.Segment.interpolate(t, v, k, t[:-1], widths)
-    dv = dv/2**widths
+    dv = dv/2**(16*widths)
 
     for i, (ti, dvi) in enumerate(zip(t, dv)):
         dt = 0
