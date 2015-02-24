@@ -71,40 +71,24 @@ def main(dev=None):
     dev.cmd("START", False)
 
     if args.demo:
-        raise NotImplementedError
-        channels = [args.channel] if args.channel < dev.num_channels \
-            else range(dev.num_channels)
-        frames = [args.frame] if args.frame < dev.channel[0].num_frames \
-            else range(dev.channel[0].num_frames)
-        for channel in channels:
-            f = []
-            for frame in frames:
-                vi = .1*frame + channel + voltages
-                pi = 2*np.pi*(.01*frame + .1*channel + 0*voltages)
+        for ch, channel in enumerate(dev.channels):
+            for fr in range(dev.channels[0].num_frames):
+                vi = .1*fr + ch + voltages
+                channel.segment(times, vi, order=args.order)
+                #, end=False)
+                pi = 2*np.pi*(.01*fr + .1*ch + 0*voltages)
                 fi = 10e6*times/times[-1]
-                f.append(b"".join([
-                    dev.frame(times, vi, order=args.order, end=False),
-                    dev.frame(2*times, voltages, pi, fi, trigger=False),
-                    # dev.frame(2*times, 0*vi+.1, 0*pi, 0*fi+1e6),
-                    # dev.frame(times, 0*vi, order=args.order, silence=True),
-                ]))
-            board, dac = divmod(channel, dev.num_dacs)
-            dev.write_data(dev.add_mem_header(board, dac, dev.map_frames(f)))
+                #channel.segment(2*times, voltages, pi, fi, trigger=False, silence=True)
+            dev.write_channel(channel)
     elif args.bit:
-        raise NotImplementedError
-        map = [0] * dev.channels[0].num_frames
-        t = np.arange(2*16) * 1.
         v = [-1, 0, -1]
-        for i in range(15):
-            vi = 1 << i
-            v.extend([vi - 1, vi])
-        v = np.array(v)*dev.max_out/(1 << 15)
-        t, v = t[:3], v[:3]
-        # print(t, v)
-        for channel in range(dev.num_channels):
-            dev.write_mem(channel, dev.multi_frame(
-                [(t, v)], channel=channel, order=0, map=map,
-                shift=15, stop=False, trigger=False))
+        #for i in range(15):
+        #    v.extend([(1 << i) - 1, 1 << i])
+        v = np.array(v)*dev.channels[0].max_out/dev.channels[0].max_val
+        t = np.arange(len(v))
+        for channel in dev.channels:
+            channel.segment(t, v, order=0, shift=15, stop=False, trigger=False)
+            dev.write_channel(channel)
     else:
         c = dev.channels[args.channel]
         s = c.segment(times, voltages, order=args.order)
