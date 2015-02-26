@@ -33,6 +33,9 @@ class TB(Module):
 
 
 def _main():
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+
     # from migen.fhdl import verilog
     # print(verilog.convert(Dac()))
 
