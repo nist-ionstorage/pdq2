@@ -39,8 +39,11 @@ class Segment:
                 width -= 1
             ud.append(value)
             fmt += " hi"[width]
-        logger.debug("pack data %s %s", fmt, ud)
-        return struct.pack(fmt, *ud)
+        try:
+            return struct.pack(fmt, *ud)
+        except struct.error as e:
+            logger.error("%s as %s: %s", ud, fmt, e)
+            raise e
 
     def lines(self, typ, dt, widths, v, first={}, mid={}, last={}, shift=0):
         n = len(dt) - 1
@@ -132,6 +135,9 @@ class Channel:
 
     def __init__(self):
         self.segments = []
+
+    def clear(self):
+        del self.segments[:]
 
     def new_segment(self):
         # assert len(self.segments) < self.num_frames
