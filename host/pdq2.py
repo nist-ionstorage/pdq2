@@ -39,6 +39,7 @@ class Segment:
                 width -= 1
             ud.append(value)
             fmt += " hi"[width]
+        logger.debug("pack data %s %s", fmt, ud)
         return struct.pack(fmt, *ud)
 
     def lines(self, typ, dt, widths, v, first={}, mid={}, last={}, shift=0):
