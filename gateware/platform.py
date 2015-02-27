@@ -1,7 +1,7 @@
 # Robert Jordens <jordens@gmail.com> 2013
 
 from mibuild.generic_platform import *
-from mibuild.xilinx_ise import XilinxISEPlatform
+from mibuild.xilinx.ise import XilinxISEPlatform
 from mibuild.crg import SimpleCRG
 
 
