@@ -30,6 +30,7 @@ def main(dev=None):
                         help="interpolation (0: const, 1: lin, 2: quad,"
                         " 3: cubic) [%(default)s]")
     parser.add_argument("-p", "--plot", help="plot to file [%(default)s]")
+    parser.add_argument("-u", "--dump", help="dump to file [%(default)s]")
     parser.add_argument("-r", "--reset", default=False,
                         action="store_true", help="do reset before")
     parser.add_argument("-m", "--dcm", default=False, action="store_true",
@@ -51,6 +52,9 @@ def main(dev=None):
         logging.basicConfig(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.WARNING)
+
+    if args.dump:
+        dev = open(args.dump, "wb")
 
     dev = Pdq2(args.serial, dev)
 
