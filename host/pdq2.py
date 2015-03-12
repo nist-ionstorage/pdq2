@@ -200,13 +200,7 @@ class Pdq2:
     num_channels = num_dacs*num_boards
 
     _escape = b"\xa5"
-    _commands = {
-        "RESET":   0,
-        "TRIGGER": 1,
-        "ARM":     2,
-        "DCM":     3,
-        "START":   4,
-    }
+    _commands = "RESET TRIGGER ARM DCM START".split()
 
     def __init__(self, url=None, dev=None):
         if dev is None:
@@ -224,14 +218,16 @@ class Pdq2:
         del self.dev
 
     def write(self, data):
+        logger.debug("> %r", data)
         written = self.dev.write(data)
-        assert written == len(data)
+        if isinstance(written, int):
+            assert written == len(data)
 
     def cmd(self, cmd, enable):
-        cmd = self._commands[cmd] << 1
+        cmd = self._commands.index(cmd) << 1
         if not enable:
             cmd |= 1
-        self.write(self._escape + bytes([cmd]))
+        self.write(struct.pack("cb", self._escape, cmd))
 
     def write_mem(self, channel, data, start_addr=0):
         board, dac = divmod(channel, self.num_dacs)
