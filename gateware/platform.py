@@ -1,8 +1,7 @@
 # Robert Jordens <jordens@gmail.com> 2013
 
 from mibuild.generic_platform import *
-from mibuild.xilinx.ise import XilinxISEPlatform
-from mibuild.crg import SimpleCRG
+from mibuild.xilinx import XilinxPlatform
 
 
 _io = [
@@ -75,23 +74,19 @@ _io = [
 ]
 
 
-class Platform(XilinxISEPlatform):
-    xst_opt = """-ifmt MIXED
+class Platform(XilinxPlatform):
+    default_clk_name = "clk50"
+    default_clk_period = 20
+
+    def __init__(self):
+        XilinxPlatform.__init__(self, "xc3s500e-4pq208", _io)
+        self.xst_opt = """-ifmt MIXED
 -opt_level 2
 -opt_mode SPEED
 -register_balancing yes"""
-    bitgen_opt = "-g GTS_cycle:3 -g LCK_cycle:4 -g GWE_cycle:5 " \
+        self.bitgen_opt = "-g GTS_cycle:3 -g LCK_cycle:4 -g GWE_cycle:5 " \
             "-g DONE_cycle:6 -g Binary:Yes -w"
-    ise_commands = """
+        self.ise_commands = """
 trce -v 12 -fastpaths -o {build_name} {build_name}.ncd {build_name}.pcf
 promgen -w -spi -c FF -p mcs -o {build_name}.mcs -u 0 {build_name}.bit
 """
-    def __init__(self):
-        XilinxISEPlatform.__init__(self, "xc3s500e-4pq208", _io,
-                lambda p: SimpleCRG(p, "clk50", None))
-
-    def do_finalize(self, fragment):
-        try:
-            self.add_period_constraint(self.lookup_request("clk50"), 20)
-        except ConstraintError:
-            pass
