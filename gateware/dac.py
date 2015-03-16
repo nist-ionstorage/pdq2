@@ -19,7 +19,7 @@ line_layout = [
             ("shift", 4), # time shift
             ("end", 1), # return to jump table after
             ("clear", 1), # clear persistent state (phase accu)
-            ("wait", 1), # wait for low trigger after
+            ("wait", 1), # wait for trigger after
         ]),
         ("dt", 16),
         ("data", 14*16),
