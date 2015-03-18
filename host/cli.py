@@ -26,6 +26,8 @@ def main(dev=None):
     parser.add_argument("-v", "--voltages",
                         default="(1-np.cos(t/t[-1]*2*np.pi))/2",
                         help="sample voltages (V) [%(default)s]")
+    parser.add_argument("-a", "--aux", default=False, action="store_true",
+                        help="axiliary digital output [%(default)%s]")
     parser.add_argument("-o", "--order", default=3, type=int,
                         help="interpolation (0: const, 1: lin, 2: quad,"
                         " 3: cubic) [%(default)s]")
@@ -59,14 +61,14 @@ def main(dev=None):
     dev = Pdq2(args.serial, dev)
 
     if args.reset:
-        dev.write(b"\x00")  # flush any escape
+        dev.write(b"\x00\x00")  # flush any escape
         dev.cmd("RESET", True)
         time.sleep(.1)
     dev.cmd("START", False)
+    dev.cmd("ARM", False)
     dev.cmd("DCM", args.dcm)
     freq = 100e6 if args.dcm else 50e6
-    for channel in dev.channels:
-        channel.freq = freq
+    dev.set_freq(freq)
 
     times = eval(args.times, globals(), {})
     voltages = eval(args.voltages, globals(), dict(t=times))
@@ -76,10 +78,12 @@ def main(dev=None):
             entry = []
             for fr in range(dev.channels[0].num_frames):
                 vi = .1*fr + ch + voltages
-                entry.append(channel.segment(times, vi, order=args.order, end=False))
+                entry.append(channel.segment(times, vi, order=args.order,
+                                             end=False, aux=args.aux))
                 pi = 2*np.pi*(-.5 + .01*fr + .1*ch + 0*voltages)
                 fi = 10e6*times/times[-1]
-                channel.segment(2*times, voltages, pi, fi, trigger=False, silence=True)
+                channel.segment(2*times, voltages, pi, fi, trigger=False,
+                                silence=True, aux=args.aux)
             dev.write_channel(channel, entry)
     elif args.bit:
         v = [-1, 0, -1]
@@ -88,19 +92,19 @@ def main(dev=None):
         v = np.array(v)*dev.channels[0].max_out/dev.channels[0].max_val
         t = np.arange(len(v))
         for channel in dev.channels:
-            s = channel.segment(t, v, order=0, shift=15, stop=False, trigger=False)
+            s = channel.segment(t, v, order=0, shift=15, stop=False,
+                                trigger=False)
             dev.write_channel(channel, [s for i in range(channel.num_frames)])
     else:
         c = dev.channels[args.channel]
         map = [None] * c.num_frames
-        map[args.frame] = c.segment(times, voltages, order=args.order)
+        map[args.frame] = c.segment(times, voltages, order=args.order,
+                                    aux=args.aux)
         dev.write_channel(c, map)
 
     dev.cmd("START", True)
-    if not args.disarm:
-        dev.cmd("ARM", True)
-    if args.free:
-        dev.cmd("TRIGGER", True)
+    dev.cmd("ARM", not args.disarm)
+    dev.cmd("TRIGGER", args.free)
     dev.close()
 
     if args.plot:
