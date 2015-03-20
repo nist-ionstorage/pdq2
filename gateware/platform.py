@@ -14,7 +14,10 @@ _io = [
 
             Subsignal("rd_in", Pins("P159")), #GO_1
             Subsignal("rd_out", Pins("P102")), #G1
+            IOStandard("LVCMOS25"),
+        ),
 
+        ("ctrl", 0,
             Subsignal("reset", Pins("P96")), # dac_reset
 
             Subsignal("adr", Pins("P32 P6 P14 P43")), # active low
@@ -24,7 +27,7 @@ _io = [
 
             Subsignal("go2_in", Pins("P169")), #GO_2 in
             Subsignal("go2_out", Pins("P100")), #G2 out
-            IOStandard("LVCMOS25")
+            IOStandard("LVCMOS25"),
         ),
 
         ("dac", 0,

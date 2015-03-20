@@ -1,4 +1,6 @@
-# Robert Jordens <jordens@gmail.com> 2013
+#!/usr/bin/python3
+
+# Robert Jordens <jordens@gmail.com> 2012-2015
 
 from gateware.platform import Platform
 from gateware.pdq2 import Pdq2

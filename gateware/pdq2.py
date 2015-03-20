@@ -1,17 +1,63 @@
 # Robert Jordens <jordens@gmail.com> 2013
 
 from migen.fhdl.std import *
+from migen.genlib.record import Record
 
 from .dac import Dac
 from .comm import Comm
+from .ft245r import Ft245r_rx, SimFt245r_rx, SimReader
 
 
-class Pdq2(Module):
+class Pdq2Base(Module):
+    def __init__(self, ctrl_pads, mem_depths=(1 << 13, 1 << 13, 1 << 12)):
+        # (1 << 13, (1 << 12) + (1 << 11), (1 << 12) + (1 << 11))
+        self.dacs = []
+        for i, depth in enumerate(mem_depths):
+            dac = Dac(mem_depth=depth)
+            setattr(self.submodules, "dac{}".format(i), dac)
+            self.dacs.append(dac)
+        self.submodules.comm = Comm(ctrl_pads, self.dacs)
+
+
+class Pdq2Sim(Module):
+    ctrl_layout = [
+        ("adr", 4),
+        ("aux", 1),
+        ("frame", 3),
+        ("trigger", 1),
+        ("reset", 1),
+        ("go2_in", 1),
+        ("go2_out", 1),
+    ]
+
+    def __init__(self, mem, skip_ft245r=True):
+        self.ctrl_pads = Record(self.ctrl_layout)
+        self.ctrl_pads.adr.reset = 0b1111
+        self.ctrl_pads.trigger.reset = 1
+        self.ctrl_pads.frame.reset = 0b000
+        self.submodules.dut = InsertReset(Pdq2Base(self.ctrl_pads), ["sys"])
+        self.comb += self.dut.reset_sys.eq(self.dut.comm.ctrl.reset)
+        if skip_ft245r:
+            self.submodules.reader = SimReader(mem)
+        else:
+            self.submodules.reader = InsertReset(SimFt245r_rx(mem))
+            self.comb += self.reader.reset.eq(self.dut.comm.ctrl.reset)
+        self.comb += self.dut.comm.sink.connect(self.reader.source)
+        self.outputs = []
+
+    def do_simulation(self, selfp):
+        self.outputs.append([dac.out.data for dac in selfp.dut.dacs])
+    do_simulation.passive = True
+
+
+class CRG(Module):
     def __init__(self, platform):
         self.clock_domains.cd_sys = ClockDomain()
-        clk_p = self.cd_sys.clk
-        clk_n = Signal()
-        rst = Signal()
+        self.clk_p = self.cd_sys.clk
+        self.clk_n = Signal()
+        self.rst = Signal()
+        self.dcm_locked = Signal()
+        self.dcm_sel = Signal()
 
         clkin = platform.request("clk50")
         clkin_period = 20
@@ -21,8 +67,6 @@ class Pdq2(Module):
 
         dcm_clk2x = Signal()
         dcm_clk2x180 = Signal()
-        dcm_locked = Signal()
-        dcm_sel = Signal()
         self.specials += Instance("DCM_SP",
                 p_CLKDV_DIVIDE=2,
                 p_CLKFX_DIVIDE=1,
@@ -42,7 +86,7 @@ class Pdq2(Module):
                 i_PSINCDEC=0,
                 i_PSCLK=0,
                 i_CLKIN=clkin_sdr,
-                o_LOCKED=dcm_locked,
+                o_LOCKED=self.dcm_locked,
                 #o_CLK2X=dcm_clk2x,
                 #o_CLK2X180=dcm_clk2x180,
                 o_CLKFX=dcm_clk2x,
@@ -51,51 +95,52 @@ class Pdq2(Module):
                 i_CLKFB=0,
                 )
         self.specials += Instance("BUFGMUX",
-                i_I0=clkin_sdr, i_I1=dcm_clk2x, i_S=dcm_sel,
-                o_O=clk_p)
+                i_I0=clkin_sdr, i_I1=dcm_clk2x, i_S=self.dcm_sel,
+                o_O=self.clk_p)
         self.specials += Instance("BUFGMUX",
-                i_I0=~clkin_sdr, i_I1=dcm_clk2x180, i_S=dcm_sel,
-                o_O=clk_n)
+                i_I0=~clkin_sdr, i_I1=dcm_clk2x180, i_S=self.dcm_sel,
+                o_O=self.clk_n)
         self.specials += Instance("FD", p_INIT=1,
-                i_D=~dcm_locked | rst,
+                i_D=~self.dcm_locked | self.rst,
                 i_C=self.cd_sys.clk, o_Q=self.cd_sys.rst)
 
-        dacs = []
-        for i, mem in enumerate((1<<13, 1<<13, 1<<12)):
-        #for i, mem in enumerate((1<<13, (1<<12)+(1<<11), (1<<12)+(1<<11))):
-            dac = Dac(mem_depth=mem)
-            setattr(self.submodules, "dac{}".format(i), dac)
-            dacs.append(dac)
 
+class Pdq2(Pdq2Base):
+    def __init__(self, platform):
+        ctrl_pads = platform.request("ctrl")
+        Pdq2Base.__init__(self, ctrl_pads)
+        self.submodules.crg = CRG(platform)
+        comm_pads = platform.request("comm")
+        self.submodules.reader = Ft245r_rx(comm_pads)
+        self.comb += [
+                self.comm.sink.connect(self.reader.source),
+                self.crg.rst.eq(self.comm.ctrl.reset),
+                ctrl_pads.go2_out.eq(self.crg.dcm_locked),
+                self.crg.dcm_sel.eq(self.comm.ctrl.dcm_sel)
+        ]
+
+        for i, dac in enumerate(self.dacs):
             pads = platform.request("dac", i)
             # inverted clocks ensure setup and hold times of data
             ce = Signal()
             d = Signal.like(dac.out.data)
             self.comb += [
                     ce.eq(~dac.out.silence),
-                    d.eq(~dac.out.data), # pcb inversion
+                    d.eq(~dac.out.data),  # pcb inversion
             ]
 
             self.specials += Instance("ODDR2",
-                    i_C0=clk_p, i_C1=clk_n, i_CE=ce,
+                    i_C0=self.crg.clk_p, i_C1=self.crg.clk_n, i_CE=ce,
                     i_D0=0, i_D1=1, i_R=0, i_S=0, o_Q=pads.clk_p)
             self.specials += Instance("ODDR2",
-                    i_C0=clk_p, i_C1=clk_n, i_CE=ce,
+                    i_C0=self.crg.clk_p, i_C1=self.crg.clk_n, i_CE=ce,
                     i_D0=1, i_D1=0, i_R=0, i_S=0, o_Q=pads.clk_n)
             dclk = Signal()
             self.specials += Instance("ODDR2",
-                    i_C0=clk_p, i_C1=clk_n, i_CE=ce,
+                    i_C0=self.crg.clk_p, i_C1=self.crg.clk_n, i_CE=ce,
                     i_D0=0, i_D1=1, i_R=0, i_S=0, o_Q=dclk)
             self.specials += Instance("OBUFDS",
                     i_I=dclk, o_O=pads.data_clk_p, o_OB=pads.data_clk_n)
             for i in range(16):
                 self.specials += Instance("OBUFDS",
                         i_I=d[i], o_O=pads.data_p[i], o_OB=pads.data_n[i])
-
-        pads = platform.request("comm")
-        self.submodules.comm = Comm(pads, dacs)
-        self.comb += [
-                rst.eq(self.comm.ctrl.reset),
-                pads.go2_out.eq(dcm_locked),
-                dcm_sel.eq(self.comm.ctrl.dcm_sel)
-        ]

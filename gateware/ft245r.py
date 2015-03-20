@@ -4,12 +4,18 @@ from math import ceil
 import random
 
 from migen.fhdl.std import *
-from migen.flow.actor import Source
-from migen.genlib.fsm import FSM, NextState
 from migen.genlib.misc import timeline
+from migen.genlib.record import Record
+from migen.flow.actor import Source
+from migen.flow.transactions import Token
+from migen.actorlib.sim import SimActor
 
 
-class SimFt245r_rx(Module):
+class SimFt245r_rx_w(Module):
+    t_fill = [0, 3]
+    t_delay = [0, 1]
+    t_setup = [0, 4]  # 5 - wr
+
     def __init__(self, pads, data):
         self.pads = pads
         self.data = data
@@ -35,22 +41,22 @@ class SimFt245r_rx(Module):
                 self.state = "read"
         elif self.state == "read":
             if selfp.pads.rdl == 0:
-                self.wait = random.choice([0, 4]) # 5 - wr
+                self.wait = random.choice(self.t_setup)
                 self.state = "setup"
         elif self.state == "setup":
             if self.wait == 0:
                 selfp.dat = self.data.pop(0)
                 self.state = "wait"
             if selfp.pads.rdl == 1:
-                self.wait = random.choice([0, 1])
+                self.wait = random.choice(self.t_delay)
                 self.state = "delay"
         elif self.state == "wait":
             if selfp.pads.rdl == 1:
-                self.wait = random.choice([0, 1])
+                self.wait = random.choice(self.t_delay)
                 self.state = "delay"
         elif self.state == "delay":
             if self.wait == 0:
-                self.wait = random.choice([0, 3])
+                self.wait = random.choice(self.t_fill)
                 self.state = "fill"
 
 
@@ -74,9 +80,9 @@ class Ft245r_rx(Module):
         # can only sustain 1MByte/s anyway at full speed USB
         # stb implicitly needs to be acked within a read cycle
         #clk /= 4 # slow it down
-        t_latch = int(ceil(50/clk)) # t_RDLl_Dv
-        t_drop = t_latch + int(ceil(20/clk)) # slave skew
-        t_refill = t_drop + int(ceil(50/clk)) # t_RDLh_RDLl
+        t_latch = int(ceil(50/clk))  # t_RDLl_Dv
+        t_drop = t_latch + int(ceil(20/clk))  # slave skew
+        t_refill = t_drop + int(ceil(50/clk))  # t_RDLh_RDLl
 
         reading = Signal()
         # proxy rxfl to slaves, drive rdl
@@ -96,3 +102,25 @@ class Ft245r_rx(Module):
                     (t_refill, [reading.eq(0)]),
                 ])
         ]
+
+
+class SimFt245r_rx(Ft245r_rx):
+    comm_layout = [
+        ("rxfl", 1),
+        ("rdl", 1),
+        ("rd_in", 1),
+        ("rd_out", 1),
+        ("data", 8),
+    ]
+
+    def __init__(self, data):
+        pads = Record(self.comm_layout)
+        Ft245r_rx.__init__(self, pads)
+        self.submodules.ft245r_w = SimFt245r_rx_w(pads, data)
+
+
+class SimReader(SimActor):
+    def __init__(self, data):
+        self.source = Source(bus_layout)
+        gen = (Token("source", {"data": _}) for _ in data)
+        SimActor.__init__(self, gen)

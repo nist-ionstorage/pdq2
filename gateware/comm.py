@@ -1,12 +1,12 @@
 # Robert Jordens <jordens@gmail.com> 2013
 
 from migen.fhdl.std import *
-from migen.flow.actor import Source, Sink
+from migen.flow.actor import Sink
 from migen.actorlib.structuring import Cast, Pack, pack_layout
 from migen.genlib.fsm import FSM, NextState
 
 from .escape import Unescaper
-from .ft245r import bus_layout, Ft245r_rx
+from .ft245r import bus_layout
 
 
 mem_layout = [("data", 16)]
@@ -166,18 +166,17 @@ class Ctrl(Module):
 
 
 class Comm(Module):
-    def __init__(self, pads, dacs):
-        self.submodules.reader = Ft245r_rx(pads)
+    def __init__(self, ctrl_pads, dacs):
         self.submodules.unescaper = Unescaper(bus_layout, 0xa5)
+        self.sink = self.unescaper.sink
         self.submodules.pack = Pack(bus_layout, 2)
         self.submodules.cast = Cast(pack_layout(bus_layout, 2), mem_layout)
-        self.submodules.memwriter = MemWriter(~pads.adr, dacs) # adr active low
-        self.submodules.ctrl = Ctrl(pads, dacs)
+        self.submodules.memwriter = MemWriter(~ctrl_pads.adr, dacs) # adr active low
+        self.submodules.ctrl = Ctrl(ctrl_pads, dacs)
 
         ###
 
         self.comb += [
-                self.unescaper.sink.connect(self.reader.source),
                 self.pack.sink.connect(self.unescaper.source_a),
                 self.cast.sink.connect(self.pack.source),
                 self.memwriter.sink.connect(self.cast.source),
