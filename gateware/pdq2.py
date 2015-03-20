@@ -1,4 +1,4 @@
-# Robert Jordens <jordens@gmail.com> 2013
+# Robert Jordens <jordens@gmail.com> 2013-2015
 
 from migen.fhdl.std import *
 from migen.genlib.record import Record
@@ -39,11 +39,15 @@ class Pdq2Sim(Module):
         self.submodules.dut = InsertReset(Pdq2Base(self.ctrl_pads), ["sys"])
         self.comb += self.dut.reset_sys.eq(self.dut.comm.ctrl.reset)
         if skip_ft245r:
-            self.submodules.reader = SimReader(mem)
+            reader = SimReader(mem)
         else:
-            self.submodules.reader = InsertReset(SimFt245r_rx(mem))
-            self.comb += self.reader.reset.eq(self.dut.comm.ctrl.reset)
+            reader = SimFt245r_rx(mem)
+        self.submodules.reader = InsertReset(reader, ["sys"])
+        self.comb += self.reader.reset_sys.eq(self.dut.comm.ctrl.reset)
         self.comb += self.dut.comm.sink.connect(self.reader.source)
+        # override high-ack during reset draining the reader
+        self.comb += self.reader.source.ack.eq(self.dut.comm.sink.ack &
+                                               ~self.dut.comm.ctrl.reset)
         self.outputs = []
 
     def do_simulation(self, selfp):
