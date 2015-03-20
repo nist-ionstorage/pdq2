@@ -2,6 +2,7 @@
 
 from migen.fhdl.std import *
 from migen.genlib.record import Record
+from migen.genlib.resetsync import AsyncResetSynchronizer
 
 from .dac import Dac
 from .comm import Comm
@@ -100,9 +101,8 @@ class CRG(Module):
         self.specials += Instance("BUFGMUX",
                 i_I0=~clkin_sdr, i_I1=dcm_clk2x180, i_S=self.dcm_sel,
                 o_O=self.clk_n)
-        self.specials += Instance("FD", p_INIT=1,
-                i_D=~self.dcm_locked | self.rst,
-                i_C=self.cd_sys.clk, o_Q=self.cd_sys.rst)
+        self.specials += AsyncResetSynchronizer(
+            self.cd_sys, ~self.dcm_locked | self.rst)
 
 
 class Pdq2(Pdq2Base):
