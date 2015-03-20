@@ -105,7 +105,6 @@ def main(dev=None):
     dev.cmd("START", True)
     dev.cmd("ARM", not args.disarm)
     dev.cmd("TRIGGER", args.free)
-    dev.close()
 
     if args.plot:
         from matplotlib import pyplot as plt
