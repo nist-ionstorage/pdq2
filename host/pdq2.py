@@ -25,6 +25,8 @@ class Segment:
             (aux << 8) | (shift << 9) | (end << 13) | (clear << 14) |
             (wait << 15)
         )
+        logger.debug("packing line: head=0x%04x dt=0x%04x data=%r", head, dt,
+                     data)
         self.data += struct.pack("<HH", head, dt) + data
 
     @staticmethod
@@ -40,6 +42,7 @@ class Segment:
             ud.append(value)
             fmt += " hi"[width]
         try:
+            logger.debug("packing data: fmt=%s data=%s", fmt, ud)
             return struct.pack(fmt, *ud)
         except struct.error as e:
             logger.error("%s as %s: %s", ud, fmt, e)
@@ -93,7 +96,7 @@ class Segment:
 
     def dac(self, t, v, first={}, mid={}, last={},
             shift=0, tr=None, order=3, stop=True):
-        widths = np.array([1, 2, 3, 3])
+        widths = np.array([1, 2, 3, 3], dtype=np.int64)
         tr, dt = self.line_times(t, tr)
         dv = self.interpolate(t, v, order, tr, widths[:order + 1] - 1)
         self.lines(0, dt, widths, dv, first, mid, mid if stop else last, shift)
@@ -102,7 +105,7 @@ class Segment:
 
     def dds(self, t, v, p=None, f=None, first={}, mid={}, last={},
             shift=0, tr=None, order=3, stop=True):
-        widths = np.array([1, 2, 3, 3, 1, 2, 2])
+        widths = np.array([1, 2, 3, 3, 1, 2, 2], dtype=np.int64)
         tr, dt = self.line_times(t, tr)
         dv = self.interpolate(t, v, order, tr, widths[:order + 1] - 1)
         if p is not None:
@@ -228,6 +231,10 @@ class Pdq2:
         if not enable:
             cmd |= 1
         self.write(struct.pack("cb", self._escape, cmd))
+
+    def clear_all(self):
+        for c in self.channels:
+            c.clear()
 
     def write_mem(self, channel, data, start_addr=0):
         board, dac = divmod(channel, self.num_dacs)
