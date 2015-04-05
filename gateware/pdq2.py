@@ -36,13 +36,13 @@ class Pdq2Sim(Module):
         self.ctrl_pads.adr.reset = 0b1111
         self.ctrl_pads.trigger.reset = 1
         self.ctrl_pads.frame.reset = 0b000
-        self.submodules.dut = InsertReset(Pdq2Base(self.ctrl_pads), ["sys"])
+        self.submodules.dut = ResetInserter(["sys"])(Pdq2Base(self.ctrl_pads))
         self.comb += self.dut.reset_sys.eq(self.dut.comm.ctrl.reset)
         if skip_ft245r:
             reader = SimReader(mem)
         else:
             reader = SimFt245r_rx(mem)
-        self.submodules.reader = InsertReset(reader, ["sys"])
+        self.submodules.reader = ResetInserter(["sys"])(reader)
         self.comb += self.reader.reset_sys.eq(self.dut.comm.ctrl.reset)
         self.comb += self.dut.comm.sink.connect(self.reader.source)
         # override high-ack during reset draining the reader
