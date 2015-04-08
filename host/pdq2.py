@@ -6,6 +6,7 @@ import struct
 
 import serial
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -194,25 +195,29 @@ class Pdq2:
         s = self.channels[channel].segments[segment]
         self.write_mem(channel, s.data, s.adr)
 
+    def program_frame(self, frame_data):
+        segments = [c.new_segment() for c in self.channels]
+        for i, line in enumerate(frame_data):  # segments are concatenated
+            dac_divider = line.get("dac_divider", 1)
+            shift = int(log2(dac_divider))
+            assert 2**shift == dac_divider
+            duration = line["duration"]
+            trigger = line.get("trigger", False)
+            if i == 0:
+                assert trigger
+                trigger = False  # use wait on the last line
+            eof = i == len(frame_data) - 1
+            for segment, data in zip(segments, line.get("channel_data")):
+                assert len(data) == 1
+                for target, target_data in data.items():
+                    getattr(segment, target)(
+                        shift=shift, duration=duration,
+                        trigger=trigger, wait=eof, jump=eof,
+                        **target_data)
+        return segments
+
     def program(self, program):
         self.clear_all()
         for frame_data in program:
-            segments = [c.new_segment() for c in self.channels]
-            for i, line in enumerate(frame_data):  # segments are concatenated
-                dac_divider = line.get("dac_divider", 1)
-                shift = int(log2(dac_divider))
-                assert 2**shift == dac_divider
-                duration = line["duration"]
-                trigger = line.get("trigger", False)
-                if i == 0:
-                    assert trigger
-                    trigger = False  # use wait on the last line
-                eof = i == len(frame_data) - 1
-                for segment, data in zip(segments, line.get("channel_data")):
-                    assert len(data) == 1
-                    for target, target_data in data.items():
-                        getattr(segment, target)(
-                            shift=shift, duration=duration,
-                            trigger=trigger, wait=eof, jump=eof,
-                            **target_data)
+            self.program_frame(frame_data)
         self.write_all()
