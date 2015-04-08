@@ -6,10 +6,18 @@ import struct
 
 import serial
 
-from artiq.wavesynth.coefficients import discrete_compensate
-
-
 logger = logging.getLogger(__name__)
+
+
+def discrete_compensate(c):
+    l = len(c)
+    if l > 2:
+        c[1] += c[2]/2.
+    if l > 3:
+        c[1] += c[3]/6.
+        c[2] += c[3]
+    if l > 4:
+        raise ValueError("only third-order splines supported")
 
 
 class Segment:
