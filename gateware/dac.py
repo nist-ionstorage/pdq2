@@ -4,9 +4,10 @@ from migen.fhdl.std import *
 from migen.genlib.record import Record
 from migen.genlib.misc import optree
 from migen.flow.actor import Source, Sink
-from migen.genlib.cordic import Cordic
 from migen.actorlib.fifo import SyncFIFO
 from migen.genlib.fsm import FSM, NextState
+
+from .cordic import Cordic
 
 
 line_layout = [
