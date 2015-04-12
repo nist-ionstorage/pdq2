@@ -7,5 +7,3 @@ wget http://www.phys.ethz.ch/~robertjo/xilinx_webpack.lic.gpg
 echo "$secret" | gpg --passphrase-fd 0 xilinx_webpack.lic.gpg
 mkdir ~/.Xilinx
 mv xilinx_webpack.lic ~/.Xilinx/Xilinx.lic
-mkdir build
-ln -s /bin/true build/wbtc
