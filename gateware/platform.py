@@ -83,6 +83,10 @@ class Platform(XilinxPlatform):
 
     def __init__(self):
         XilinxPlatform.__init__(self, "xc3s500e-4pq208", _io)
+        self.xst_opt = """-ifmt MIXED
+-opt_level 2
+-opt_mode SPEED
+-register_balancing yes"""
         self.bitgen_opt = "-g GTS_cycle:3 -g LCK_cycle:4 -g GWE_cycle:5 " \
             "-g DONE_cycle:6 -g Binary:Yes -w"
         self.ise_commands = """
