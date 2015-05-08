@@ -4,6 +4,7 @@ from migen.fhdl.std import *
 from migen.flow.actor import Sink
 from migen.actorlib.structuring import Cast, Pack, pack_layout
 from migen.genlib.fsm import FSM, NextState
+from migen.genlib.cdc import MultiReg
 
 from .escape import Unescaper
 from .ft245r import bus_layout
@@ -124,9 +125,10 @@ class Ctrl(Module):
         start = Signal()
         soft_trigger = Signal()
 
+        self.specials += MultiReg(pads.trigger, trigger)
+
         self.sync += [
                 frame.eq(pads.frame),
-                trigger.eq(pads.trigger),
                 pads.aux.eq(Cat(*(dac.out.aux for dac in dacs)) != 0),
                 #pads.go2_out.eq(
                 #    Cat(*(dac.out.sink.stb for dac in dacs)) != 0),
