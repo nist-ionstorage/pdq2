@@ -65,7 +65,7 @@ class CRG(Module):
         self.dcm_sel = Signal()
 
         clkin = platform.request("clk50")
-        clkin_period = 20
+        clkin_period = 20.
 
         clkin_sdr = Signal()
         self.specials += Instance("IBUFG", i_I=clkin, o_O=clkin_sdr)
