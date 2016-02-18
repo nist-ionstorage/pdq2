@@ -8,7 +8,7 @@ before_install:
   - sudo apt-add-repository -y "deb http://archive.ubuntu.com/ubuntu trusty main universe"
   - sudo apt-get -qq -y update
   - sudo apt-get install -y iverilog
-  - pip install --src ./src -e git+https://github.com/m-labs/migen.git@master#egg=migen
+  - pip install --src ./src -e git+https://github.com/m-labs/migen.git@legacy#egg=migen
   - mkdir vpi
   - iverilog-vpi --name=vpi/migensim src/migen/vpi/main.c src/migen/vpi/ipc.c
   - ./.travis/get-xilinx.sh
