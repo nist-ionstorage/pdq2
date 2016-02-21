@@ -102,9 +102,9 @@ class Platform(XilinxPlatform):
 -opt_level 2
 -opt_mode SPEED
 -register_balancing yes"""
-        self.bitgen_opt = "-g GTS_cycle:3 -g LCK_cycle:4 -g GWE_cycle:5 " \
-            "-g DONE_cycle:6 -g Binary:Yes -w"
-        self.ise_commands = """
+        self.toolchain.bitgen_opt += (" -g GTS_cycle:3 -g LCK_cycle:4 "
+                                      "-g GWE_cycle:5 -g DONE_cycle:6")
+        self.toolchain.ise_commands += """
 trce -v 12 -fastpaths -o {build_name} {build_name}.ncd {build_name}.pcf
 promgen -w -spi -c FF -p mcs -o {build_name}.mcs -u 0 {build_name}.bit
 """
