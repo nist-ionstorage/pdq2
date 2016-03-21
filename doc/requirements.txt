@@ -1,0 +1,1 @@
+-e git://github.com/m-labs/migen.git@legacy#egg=migen
