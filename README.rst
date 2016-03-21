@@ -1,8 +1,15 @@
 .. image:: https://zenodo.org/badge/doi/10.5281/zenodo.11567.png
   :target: http://dx.doi.org/10.5281/zenodo.11567
-.. image:: https://travis-ci.org/nist-ionstorage/pdq2.svg?branch=master
-  :target: https://travis-ci.org/nist-ionstorage/pdq2
+  :alt: Zenodo DOI URL
+.. image:: https://travis-ci.org/m-labs/pdq2.svg?branch=master
+  :target: https://travis-ci.org/m-labs/pdq2
+  :alt: Continuous integration build and test
+.. image:: http://readthedocs.org/projects/pdq2/badge/?version=latest
+  :target: http://pdq2.readthedocs.org/en/latest/?badge=latest
+  :alt: Documentation Status
 
+
+====
 PDQ2
 ====
 
@@ -10,7 +17,7 @@ Pretty darn quick interpolating arbitrary waveform generator.
 
 
 Build
------
+=====
 
 Get Migen: https://github.com/m-labs/migen
 
@@ -18,7 +25,7 @@ $ python3 make.py
 
 
 Testbenches
------------
+===========
 
 $ python3 -m testbench.escape
 $ python3 -m testbench.dac
@@ -26,7 +33,7 @@ $ python3 -m testbench.cli
 
 
 References
-----------
+==========
 
 Arbitrary waveform generator for quantum information processing with trapped
 ions; R. Bowler, U. Warring, J. W. Britton, B. C. Sawyer and J. Amini;
