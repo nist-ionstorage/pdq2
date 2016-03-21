@@ -1,9 +1,9 @@
 language: python
 python:
-  - "3.4"
+  - "3.5"
 env:
   global:
-    secure: "TaEIU4Must++rLSsB3eRe0vtPPsHhuDFIyUIRLp8P/c8Tq1isrzxeTfWeWU1sa5WVYsMXy8Q6JqgBYpopml3B0OtOcO7T10YSvrzcgIQOoSoInsRwr7ernSLFWDORDLPCW6BdRfVmTqFjGuGK9qor5J6LUMrAs4KQ+wthH1m8Wc="
+    secure: "c676c0obZAykv+zmrOtukP/TxCSa9BHamFo5glVN5AIfoBRRZs5hpBRR6dWYjZAs2Gdnv8ICXeOrV2yMvkJvAhzilJMkx88RRDlxrTEU+JiUDFWnzSu6fsqZ+ffHGQ3A5DhgLBF0EY8FVkSm2rapknekjoixFJr7BlMszMhw8SeRt5iXoVu+6BkLzk55P3w4grCSU1orzT/DK2dK4iBvqPRfp4WU22qgUrq0vE+B8xF6bLIJAP6w7G3tbNGjQ53UL6wGLlPXxiDFzk/a4poV9AGw+h4NuSEUV4/jFj01PlUUDqQfPU885kQA/j2o1Hv9RvTULpncgPCRO9AHMd3apRCSRkfgixakq4scsLq4ZxSfYY44nYCIhKHp7bmCm/CWrMaQD/E5K2s5tjFVF/ozfOG7cJpcHdmFBxdycnjrxKTMSvtQN8wZucGe1WwFKUv6i06+fC1lsqx1ydArC5gcVBKPPpmXCflcDRdM2AU5743+awidjItNjCFz/64+51qet/KiovzzVwgwYm837oZyAP8MZ+yiR0gEtXsNYrGXo2biId3qK776wIzQ2PebWlKUxK5pjWvWKjDFrfaBCg7L4dYGsHaz4GwTEsZ9OPEct+LJrVSlLxCYpFxOkNTM1GRQl/ya6OEBWEKYQCj5jL7fQgI33Mb7xIkRAxSY+XWPOfE="
 before_install:
   - sudo apt-add-repository -y "deb http://archive.ubuntu.com/ubuntu trusty main universe"
   - sudo apt-get -qq -y update
@@ -20,6 +20,3 @@ notifications:
   irc:
     channels:
       - chat.freenode.net#nist-ionstorage
-  webhooks:
-    urls:
-      - https://webhooks.gitter.im/e/d26782523952bfa53814
