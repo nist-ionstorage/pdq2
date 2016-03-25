@@ -19,17 +19,19 @@ Pretty darn quick interpolating arbitrary waveform generator.
 Build
 =====
 
-Get Migen: https://github.com/m-labs/migen
+Get Migen: https://github.com/m-labs/migen::
 
-$ python3 make.py
+  $ python3 make.py
 
 
 Testbenches
 ===========
 
-$ python3 -m testbench.escape
-$ python3 -m testbench.dac
-$ python3 -m testbench.cli
+::
+
+  $ python3 -m testbench.escape
+  $ python3 -m testbench.dac
+  $ python3 -m testbench.cli
 
 
 References
