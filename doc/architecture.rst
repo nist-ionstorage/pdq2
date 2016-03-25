@@ -6,6 +6,22 @@ Many use cases of analog voltages in physics experiments do not continuously nee
 Many use cases are covered by either a large bandwidth at very small duty cycle or a very small bandwidth at longer duty cycles.
 It is therefore prudent to generate, represent, transfer, and store the output waveform data in a compressed format.
 
+    * Outputs: 16 bit DACs, +- 10V
+    * Sample rate and interpolation speed: 50 MHz or 100 MHz online selectable.
+    * Scalability: Three DACs per board.
+      Up to 16 boards stackable to provide 48 channels per USB device.
+      Number of PDQ2 stacks only limited by maximum number of USB devices per computer.
+    * Memory: 16 KiB or 8 KiB per channel. Compact partitionable data format.
+    * Interpolation: DC bias B-spline: constant, linear, quadratic, or cubic.
+      Selectable for each knot, each channel.
+    * DDS output per channel: 32 bit frequency, 16 bit phase offset, 48 bit frequency chirp.
+      Cubic spline amplitude modulation, aligned with frequency/phase modulator.
+      DDS output added to DC bias spline.
+    * Digital outputs: One AUX channel per board, synchronous to spline knots.
+    * External control, synchronization: One TTL trigger control input to trigger the execution of marked spline knots.
+    * Frame selection: Eight separate frames each describing a waveform. Selectable in hard real-time using three TTL frame select signals.
+
+
 Spline Interpolation
 --------------------
 
