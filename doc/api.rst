@@ -54,6 +54,10 @@ Code Documentation
 :mod:`host.cli` module
 ----------------------
 
+.. argparse::
+    :ref: host.cli.get_argparser
+    :prog: pdq2
+
 .. automodule:: host.cli
     :members:
 

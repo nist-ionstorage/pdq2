@@ -22,11 +22,11 @@ from scipy import interpolate
 
 from .pdq2 import Pdq2
 
+import argparse
+import time
 
-def main(dev=None):
-    import argparse
-    import time
 
+def get_argparser():
     parser = argparse.ArgumentParser(description="""PDQ2 frontend.
             Evaluates times and voltages, interpolates and uploads
             them.""")
@@ -55,6 +55,11 @@ def main(dev=None):
                         help="software trigger [%(default)s]")
     parser.add_argument("-d", "--debug", default=False,
                         action="store_true", help="debug communications")
+    return parser
+
+
+def main(dev=None):
+    parser = get_argparser()
     args = parser.parse_args()
 
     if args.debug:
