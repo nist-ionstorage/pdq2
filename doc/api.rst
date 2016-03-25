@@ -1,4 +1,4 @@
-Code documentation
+Code Documentation
 ==================
 
 
@@ -48,4 +48,17 @@ Code documentation
 -------------------------------
 
 .. automodule:: gateware.platform
+    :members:
+
+
+:mod:`host.cli` module
+----------------------
+
+.. automodule:: host.cli
+    :members:
+
+:mod:`host.pdq2` module
+-----------------------
+
+.. automodule:: host.pdq2
     :members:
