@@ -329,7 +329,7 @@ It configures a single frame (the first and only) consisting of a single trigger
 
 ::
 
-    wavewynth_program = [
+    wavesynth_program = [
         [
             {
                 "trigger": True,
