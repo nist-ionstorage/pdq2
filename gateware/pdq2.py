@@ -25,6 +25,21 @@ from .ft245r import Ft245r_rx, SimFt245r_rx, SimReader
 
 
 class Pdq2Base(Module):
+    """PDQ2 Base configuration.
+
+    Used both in functional simulation and final gateware.
+
+    Holds the three :mod:`gateware.dac.Dac` and the communication handler
+    :mod:`gateware.comm.Comm`.
+
+    Args:
+        ctrl_pads (Record): Control pads for :mod:`gateware.comm.Comm`.
+        mem_depth (list[int]): Memory depths for the DAC channels.
+
+    Attributes:
+        dacs (list): List of :mod:`gateware.dac.Dac`.
+        comm (Module): :mod:`gateware.comm.Comm`.
+    """
     def __init__(self, ctrl_pads, mem_depths=(1 << 13, 1 << 13, 1 << 12)):
         # (1 << 13, (1 << 12) + (1 << 11), (1 << 12) + (1 << 11))
         self.dacs = []
@@ -71,6 +86,19 @@ class Pdq2Sim(Module):
 
 
 class CRG(Module):
+    """PDQ2 Clock and Reset generator.
+
+    Args:
+        platform (Platform): PDQ2 Platform.
+
+    Attributes:
+        rst (Signal): Reset input.
+        clk_p (Signal): Positive clock output.
+        clk_n (Signal): Negative clock output.
+        dcm_sel (Signal): Select doubled clock. Input.
+        dcm_locked (Signal): DCM locked. Output.
+        cd_sys (ClockDomain): System clock domain driven.
+    """
     def __init__(self, platform):
         self.clock_domains.cd_sys = ClockDomain()
         self.clk_p = self.cd_sys.clk
@@ -125,6 +153,17 @@ class CRG(Module):
 
 
 class Pdq2(Pdq2Base):
+    """PDQ2 Top module.
+
+    Wires up USB FIFO reader :mod:`gateware.ft245r.Ft345r_rx`, clock and reset
+    generator :mod:`CRG`, and the DAC output signals.
+    Delegates the wiring of the remaining modules to :mod:`Pdq2Base`.
+
+    ``pads.go2_out`` is assigned the DCM locked signal.
+
+    Args:
+        platform (Platform): PDQ2 platform.
+    """
     def __init__(self, platform):
         ctrl_pads = platform.request("ctrl")
         Pdq2Base.__init__(self, ctrl_pads)

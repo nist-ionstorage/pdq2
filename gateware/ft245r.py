@@ -79,6 +79,16 @@ bus_layout = [("data", 8)]
 
 
 class Ft245r_rx(Module):
+    """FTDI FT345R synchronous reader.
+
+    Args:
+        pads (Record[ft345r_layout]): Pads to the FT245R.
+        clk (float): Clock period in ns.
+
+    Attributes:
+        source (Source[bus_layout]): 8 bit data source. Output.
+        busy (Signal): Data available but not acknowledged by sink. Output.
+    """
     def __init__(self, pads, clk=10.):
         self.source = do = Source(bus_layout)
         self.busy = Signal()

@@ -59,6 +59,13 @@ def get_argparser():
 
 
 def main(dev=None):
+    """Test a PDQ2 stack.
+
+    Parse command line arguments, configures PDQ2 stack, interpolate the
+    time/voltage data using a spline, generate a wavesynth program from the
+    data and upload it to the specified channel. Then perform the desired
+    arming/triggering/starting functions on the stack.
+    """
     parser = get_argparser()
     args = parser.parse_args()
 

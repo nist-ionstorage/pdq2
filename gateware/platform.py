@@ -93,6 +93,14 @@ _io = [
 
 
 class Platform(XilinxPlatform):
+    """PDQ2 Platform.
+
+        * Xilinx Spartan 3A 500E in a PQ208 package.
+        * 50 MHz single ended input clock.
+        * Single FT245R USB parallel FIFO.
+        * Three 16 bit LVDS DACs.
+        * Several TTL control lines.
+    """
     default_clk_name = "clk50"
     default_clk_period = 20
 

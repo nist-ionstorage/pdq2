@@ -43,7 +43,24 @@ line_layout = [
 
 
 class Parser(Module):
-    def __init__(self, mem_depth=4*(1<<10)): # XC3S500E: 20x18bx1024
+    """Memory parser.
+
+    Reads memory controlled by TTL signals, builds lines, and submits
+    them to its output.
+
+    Args:
+        mem_depth (int): Memory depth in 16 bit entries.
+
+    Attributes:
+        mem (Memory): Memory to read from.
+        source (Source[line_layout]): Source of lines read from memory. Output.
+        arm (Signal): Allow triggers. If disarmed, the next line will not be
+            read. Instead, the Parser will return to the frame address table.
+            Input.
+        start (Signal): Allow leaving the frame address table. Input.
+        frame (Signal[3]): Values of the frame selection lines. Input.
+    """
+    def __init__(self, mem_depth=4*(1<<10)):  # XC3S500E: 20x18bx1024
         self.specials.mem = Memory(width=16, depth=mem_depth)
         self.specials.read = read = self.mem.get_port()
 
@@ -125,6 +142,21 @@ class Parser(Module):
 
 
 class Sequencer(Module):
+    """Line sequencer.
+
+    Controls execution of a line. Owns the executors that evolve the line data
+    and sums them together to generate the output. Also manages the line
+    duration counter, the ``2**shift`` counter and the acknowledgment of
+    new line data when the previous is finished.
+
+    Attributes:
+        sink (Sink[line_layout]): Line data sink.
+        trigger (Signal): Trigger input.
+        arm (Signal): Arm input.
+        aux (Signal): TTL AUX (F5) output.
+        silence (Signal): Silence DAC clocks output.
+        data (Signal[16]): Output value to be send to the DAC.
+    """
     def __init__(self):
         self.sink = Sink(line_layout)
 
@@ -190,6 +222,23 @@ class Sequencer(Module):
 
 
 class Volt(Module):
+    """DC bias spline interpolator.
+
+    The line data is interpreted as a concatenation of:
+
+        * 16 bit amplitude offset
+        * 32 bit amplitude first order derivative
+        * 48 bit amplitude second order derivative
+        * 48 bit amplitude third order derivative
+
+    Args:
+        line (Record[line_layout]): Next line to be executed. Input.
+        stb (Signal): Load data from next line. Input.
+        inc (Signal): Evolve clock enable. Input.
+
+    Attributes:
+        data (Signal[16]): Output data from this spline.
+    """
     def __init__(self, line, stb, inc):
         self.data = Signal(16)
 
@@ -213,6 +262,26 @@ class Volt(Module):
 
 
 class Dds(Module):
+    """DDS spline interpolator.
+
+    The line data is interpreted as:
+
+        * 16 bit amplitude offset
+        * 32 bit amplitude first order derivative
+        * 48 bit amplitude second order derivative
+        * 48 bit amplitude third order derivative
+        * 16 bit phase offset
+        * 32 bit frequency word
+        * 48 bit chirp
+
+    Args:
+        line (Record[line_layout]): Next line to be executed. Input.
+        stb (Signal): Load data from next line. Input.
+        inc (Signal): Evolve clock enable. Input.
+
+    Attributes:
+        data (Signal[16]): Output data from this spline.
+    """
     def __init__(self, line, stb, inc):
         self.data = Signal(16)
 
@@ -251,6 +320,21 @@ class Dds(Module):
 
 
 class Dac(Module):
+    """Output module.
+
+    Holds the Memory, the :class:`Parser`, the :class:`Sequencer`, and its two
+    output line executors.
+
+    Args:
+        fifo (int): Number of lines to buffer between :class:`Parser` and
+            :class:`Sequencer`.
+        **kwargs: Passed to :class:`Parser`.
+
+    Attributes:
+        parser: The memory :class:`Parser`.
+        out: The :class:`Sequencer` and output executor. Connect its ``data``
+            to the DAC.
+    """
     def __init__(self, fifo=0, **kwargs):
         self.submodules.parser = Parser(**kwargs)
         self.submodules.out = Sequencer()
