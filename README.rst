@@ -16,7 +16,8 @@ PDQ2
 Pretty darn quick interpolating arbitrary waveform generator.
 
 
-.. rubric:: Build
+Build
+=====
 
 Requirements:
 
@@ -37,16 +38,14 @@ Then to build the gateware::
 
   $ python3 make.py
 
-
-.. rubric:: Documentation
-
 The HTML documentation can be built with::
 
   $ pip3 install -r doc/requirements.txt
   $ make -C doc html
 
 
-.. rubric:: Testbenches
+Testbenches
+===========
 
 ::
 
@@ -55,7 +54,8 @@ The HTML documentation can be built with::
   $ python3 -m testbench.cli
 
 
-.. rubric:: References
+References
+==========
 
 Arbitrary waveform generator for quantum information processing with trapped
 ions; R. Bowler, U. Warring, J. W. Britton, B. C. Sawyer and J. Amini;
