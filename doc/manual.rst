@@ -7,7 +7,7 @@ USB Protocol
 ------------
 
 The data connection to a PDQ2 stack is a single, full speed USB, parallel FIFO with byte granularity.
-On the host this looks like a "character device" or "serial port".
+On the host this appears as a "character device" or "serial port".
 Windows users may need to install the FTDI device drivers available at the FTDI web site and enable "Virtual COM port (VCP) emulation" so the device becomes available as a COM port.
 Under Linux the drivers are usually already shipped with the distribution and immediately available.
 Device permissions have to be handled as usual through group membership and udev rules.
@@ -29,7 +29,7 @@ If the byte ``0xa5`` is to be part of the (non-control) data stream it has to be
 ======= ======== ===========
 Name    Command  Description
 ======= ======== ===========
-RESET   ``0x00`` Reset the FPGA registers. Does not reset memories. Does not reload the bitstream.
+RESET   ``0x00`` Reset the FPGA registers. Does not reset memories. Does not reload the bitstream. Does not reset the USB interface.
 TRIGGER ``0x02`` Soft trigger. Logical OR with the external trigger control line to form the trigger signal to the spline.
 ARM     ``0x04`` Enable triggering. Disarming also aborts parsing of a frame and forces the parser to the frame jump table. A currently active line will finish execution.
 DCM     ``0x06`` Set the clock speed. Enabling chooses the Digital Clock Manager which doubles the clock and thus operates all FPGA logic and the DACs at 100 MHz. Disabling chooses a 50 MHz sampling and logic clock. The PDQ2 logic is inherently agnostic to the value of the sample clock. Scaling of coefficients and duration values must be performed on the host.
@@ -51,7 +51,7 @@ Memory writes
 The non-control data stream is interpreted as 16 bit values (two bytes little-endian).
 The stream consists purely of writes of data to memory locations on individual channels.
 One channel/one memory can be written to at any given time.
-A memory write has the format (each line is one word of 16 bits):
+A memory write has the format (each row is one word of 16 bits):
 
 +--------------------+
 | ``channel``        |
@@ -72,12 +72,12 @@ A memory write has the format (each line is one word of 16 bits):
 The channel number is a function of the board number (selected on the dial switch on each PDQ2 board) and the DAC number (0, 1, 2): ``channel = (board_addr << 4) | dac_number``.
 
 .. warning::
-    No length check or address verification is performed.
-    Overflowing writes wrap.
-    Non-existent or invalid combinations of board address and/or channel number are silently ignored or wrapped.
-    If the write format is not adhered to, synchronization is lost and behavior is undefined.
-    A valid ``RESET`` sequence will restore synchronization.
-    To reliably reset under all circumstances, ensure that the reset sequence ``0xa500`` is *not* preceded by an (un-escaped) escape character.
+    * No length check or address verification is performed.
+    * Overflowing writes wrap.
+    * Non-existent or invalid combinations of board address and/or channel number are silently ignored or wrapped.
+    * If the write format is not adhered to, synchronization is lost and behavior is undefined.
+    * A valid ``RESET`` sequence will restore synchronization.
+      To reliably reset under all circumstances, ensure that the reset sequence ``0xa500`` is *not* preceded by an (un-escaped) escape character.
 
 Control commands can be inserted at any point in the non-control data stream.
 
@@ -98,7 +98,7 @@ The memory is interpreted as consisting of a table of frame start addresses with
 The layout allows partitioning the waveform memory arbitrarily among the frames of a channel.
 The data for frame ``i`` is expected to start at ``memory[memory[i]]``.
 
-The memory is interpreted as follows (each line is one word of 16 bits):
+The memory is interpreted as follows (each row is one word of 16 bits):
 
 +-----------------------+----------------------+
 | Address               | Data                 |
@@ -111,7 +111,7 @@ The memory is interpreted as follows (each line is one word of 16 bits):
 +-----------------------+----------------------+
 | ``frame[0].addr``     | ``frame[0].data[0]`` |
 +-----------------------+----------------------+
-| ``frame[0].addr + 1`` | ``frame[0].data[0]`` |
+| ``frame[0].addr + 1`` | ``frame[0].data[1]`` |
 +-----------------------+----------------------+
 | ...                   | ...                  |
 +-----------------------+----------------------+
@@ -147,7 +147,7 @@ Line Format
 -----------
 
 The frame data consists of a concatenation of lines.
-Each line has the following format:
+Each line has the following format (a row being a word of 16 bits):
 
 +----------------------+
 | ``header``           |
@@ -169,7 +169,7 @@ Each line has the following format:
 Header
 ......
 
-The ``header`` consists of:
+The 16 bits of the ``header`` are mapped:
 
 +----------+-----------+---------+----+----+----+----+---------+-------------+-------------+----+----+----+----+----+----+
 | 15       | 14        | 13      | 12 | 11 | 10 | 9  | 8       | 7           | 6           | 5  | 4  | 3  | 2  | 1  | 0  |
@@ -180,9 +180,9 @@ The ``header`` consists of:
 The components of the ``header`` have the following meaning:
 
     * ``length``: The length of the line in 16 bit words including the duration but excluding the header.
-    * ``typ``: The Spline interpolator that the data is fed into.
+    * ``typ``: The output processor that the data is fed into.
       ``typ == 0`` for the DC spline :math:`a(t)`,
-      ``typ == 1`` for the amplitude :math:`b(t)` and phase/frequency :math:`b(t)` splines.
+      ``typ == 1`` for the DDS amplitude :math:`b(t)` and phase/frequency :math:`b(t)` splines.
     * ``trigger``: Wait for trigger assertion before executing this line.
       The trigger signal is level sensitive.
       It is the logical OR of the external trigger input and the soft TRIGGER.
@@ -194,17 +194,15 @@ The components of the ``header`` have the following meaning:
       The actual duration of a line is then ``duration * 2**shift``.
     * ``end``: Return to the frame address jump table after parsing this line.
     * ``clear``: Clear the CORDIC phase accumulator upon executing this line.
-      The first phase value output will be exactly the phase offset.
-      Otherwise the phase output is the current phase plus the different in phase offsets between this line and the previous line.
+      If set, the first phase value output will be exactly the phase offset.
+      Otherwise, the phase output is the current phase plus the difference in phase offsets between this line and the previous line.
     * ``wait``: Wait for trigger assertion before executing the next line.
 
 .. warning::
     * Parsing a line is unaffected by it carrying ``trigger``.
-      Only the start of the execution of a line is affected by it carrying
-      ``trigger``.
+      Only the start of the execution of a line is affected by it carrying ``trigger``.
     * Parsing the next line is unaffected by the preceding line carrying ``wait``.
-      Only the start of the execution of the next line is affected by the
-      current line carrying ``wait``.
+      Only the start of the execution of the next line is affected by the current line carrying ``wait``.
 
 
 Spline Data
@@ -248,13 +246,19 @@ The scaling of the coefficients is as follows:
     * ``clock_period`` is 10 ns or 20 ns depending on the ``DCM`` setting.
     * ``shift`` is ``header.shift``.
     * ``2*pi`` is one full phase turn.
-    * ``cordic_gain = 1.64676`` (see :mod:`gateware.cordic`).
+    * ``cordic_gain`` is 1.64676 (see :mod:`gateware.cordic`).
 
 .. note::
     With the default analog frontend, this means: ``a0 == 0`` corresponds to close to 0 V output, ``a0 == 0x7fff`` corresponds to close to 10V output, and ``a0 == 0x8000`` corresponds to close to -10 V output.
 
 .. note::
     There is no correction for DAC or amplifier offsets, reference errors, or DAC scale errors.
+
+.. note::
+    Latencies of the CORDIC path, the DC spline path, and the AUX path are not matched.
+    The CORDIC path (both the amplitude and the phase spline) has about 19 clock cycles more latency than the DC spline path.
+    This can be exploited to align the DC spline knot start and the CORDIC output change.
+    DC spline path and AUX path differe by the DAC latency.
 
 .. warning::
     * There is no clipping or saturation.
@@ -264,19 +268,13 @@ The scaling of the coefficients is as follows:
     * When the sum of the CORDIC output amplitude and the DC spline overflows, the output wraps.
 
 .. note::
-    Latencies of the CORDIC path and the DC spline path are not matched.
-    The CORDIC path (both the amplitude and the phase spline) has about 19 clock cycles more latency.
-    This can be exploited to align the DC spline knot start and the CORDIC output change.
-
-.. note::
-    The splines stop accumulating when a line has reached its duration.
-    All splines continue evolving even when a line of a different ``typ`` is being executed.
-    All splines stop evolving when the current line has reached its duration and no next line has been read yet or the machinery is waiting for TRIGGER, ARM, or START.
+    All splines (except the DDS phase) continue evolving even when a line of a different ``typ`` is being executed.
+    All splines (except the DDS phase) stop evolving when the current line has reached its duration and no next line has been read yet or the machinery is waiting for TRIGGER, ARM, or START.
 
 .. note::
     The phase input to the CORDIC the sum of the phase offset ``c0`` and the accumulated phase due to ``c1`` and ``c2``.
     The phase accumulator *always* accumulates at full clock speed, not at the clock speed reduced by ``shift != 0``.
-    It also never stops.
+    It also never stops or pauses.
     This is in intentional contrast to the amplitude, DC spline, and frequency evolution that takes place at the reduced clock speed if ``shift != 0`` and may be paused.
 
 
@@ -288,21 +286,22 @@ Wavesynth Format
 To describe a complete PDQ2 stack program, the Wavesynth format has been
 defined.
 
-    * A ``program`` is a sequence of ``frame``.
-    * A ``frame`` is a concatentation of ``segments``. Its index in the program determines its frame number.
-    * A ``segment`` is a sequence is ``lines``. The first ``line`` should be ``triggered`` to establish synchronization with external hardware.
-    * A ``line`` is a dictionary containing the following fields:
+    * ``program`` is a sequence of ``frames``.
+    * ``frame`` is a concatentation of ``segments``. Its index in the program determines its frame number.
+    * ``segment`` is a sequence is ``lines``. The first ``line`` should be ``triggered`` to establish synchronization with external hardware.
+    * ``line`` is a dictionary containing the following fields:
 
-        * ``dac_divider == 2**header.shift``
         * ``duration``: Integer duration in spline evolution steps, in units of ``dac_divider*clock_period``.
-        * ``trigger``: Whether to wait for asserted trigger to execute this line.
+        * ``dac_divider == 2**header.shift``
+        * ``trigger``: Whether to wait for trigger assertion to execute this line.
         * ``channel_data``: Sequence of ``spline``, one for each channel.
 
     * ``spline`` is a dictionary containing as key a single spline to be set: either ``bias`` or ``dds`` and as its value a dictionary of ``spline_data``.
+      ``spline`` has exactly one key.
     * ``spline_data`` is a dictionary that may contain the following keys:
 
         * ``amplitude``: The uncompensated polynomial spline amplitude coefficients.
-          Units are Volts and powers of ``1/(dac_divider*clock_period)`` respectively.
+          Units are Volts and increasing powers of ``1/(dac_divider*clock_period)`` respectively.
         * ``phase``: Phase/Frequency spline coefficients.
           Only valid if the key for ``spline_data`` was ``dds``.
           Units are ``[turns, turns/clock_period, turns/clock_period**2/dac_divider]``.
@@ -310,7 +309,6 @@ defined.
         * ``silence``: ``header.silence``.
 
 .. note::
-    * ``spline`` has exactly one key.
     * ``amplitude`` and ``phase`` spline coefficients can be truncated. Lower
       order splines are then executed.
 
@@ -381,6 +379,6 @@ The following figure compares the output of the three channels as simulated by t
 
     The abcissa is the time in clock cycles, the ordinate is the output voltage of the channel.
 
-    The plot consists of six curves, three colored ones from the gateware simulation of the board with three channels and three black ones from the ``Synthesizer`` verification tool. The colored curves should be masked by the black curves up to integer rounding errors.
+    The plot consists of six curves, three colored ones from the gateware simulation of the board and three black ones from the ``Synthesizer`` verification tool. The colored curves should be masked by the black curves up to integer rounding errors.
 
     The source of this unittest is part of ARTIQ at ``artiq.test.test_pdq2.TestPdq2.test_run_plot``.
