@@ -44,6 +44,20 @@ The HTML documentation can be built with::
   $ make -C doc html
 
 
+Programming
+===========
+
+Once the device has been programmed with the gateware and powered up, it can be used to generate waveforms.
+
+See the :class:`host.pdq2.Pdq2` class for how to access a stack of PDQ2 board programmatically, how to submit commands, and how prepare, serialize, and program segments, frames, and channels.
+
+An example how :class:`host.pdq2.Pdq2` can be used is the command line test interface to the PDQ2 in :func:`host.cli.main`.
+
+Individual commands are described in the manual in :ref:`usb-protocol`.
+
+The wavesynth format is described with examples in :ref:`wavesynth-format`.
+
+
 Testbenches
 ===========
 
