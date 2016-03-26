@@ -64,7 +64,6 @@ Testbenches
 ::
 
   $ python3 -m testbench.escape
-  $ python3 -m testbench.dac
   $ python3 -m testbench.cli
 
 
