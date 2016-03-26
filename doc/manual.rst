@@ -56,9 +56,9 @@ A memory write has the format (each row is one word of 16 bits):
 +--------------------+
 | ``channel``        |
 +--------------------+
-| ``addr``           |
+| ``start_addr``     |
 +--------------------+
-| ``length``         |
+| ``end_addr``       |
 +--------------------+
 | ``data[0]``        |
 +--------------------+
@@ -70,6 +70,7 @@ A memory write has the format (each row is one word of 16 bits):
 +--------------------+
 
 The channel number is a function of the board number (selected on the dial switch on each PDQ2 board) and the DAC number (0, 1, 2): ``channel = (board_addr << 4) | dac_number``.
+The length of the data written is ``length = end_addr - start_addr + 1``.
 
 .. warning::
     * No length check or address verification is performed.
@@ -84,7 +85,7 @@ Control commands can be inserted at any point in the non-control data stream.
 Examples:
 
     * ``0x0072 0x0001 0x0003 0x0005 0x0007 0x0008`` writes the three words ``0x0005 0x0007 0x0008`` to the memory address ``0x0001`` of DAC channel 2 (the last of three) on board 7 (counting from 0).
-    * ``0xa5 0x06 0x0000 0x00a5a5 0x0001 0xa5a5a5a5 0xa5 0x02 0xa5 0x04 0xa5 0x08`` enables the clock doubler (100 MHz) on all channels, then writes the single word ``0xa5a5`` to address ``0x00a5`` (note the escaping and the endianess) of channel 0 of board 0, enables soft trigger on all channels, disarms all channels, and finally starts all channels.
+    * ``0xa5 0x06 0x0000 0x00a5a5 0x00a5a5 0xa5a5a5a5 0xa5 0x02 0xa5 0x04 0xa5 0x08`` enables the clock doubler (100 MHz) on all channels, then writes the single word ``0xa5a5`` to address ``0x00a5`` (note the escaping and the endianess) of channel 0 of board 0, enables soft trigger on all channels, disarms all channels, and finally starts all channels.
 
 
 .. _memory-layout:
