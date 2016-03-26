@@ -1,4 +1,3 @@
-.. include:: ../README.rst
 
 Contents
 ========
@@ -6,6 +5,7 @@ Contents
 .. toctree::
     :maxdepth: 2
 
+    readme
     architecture
     manual
     api

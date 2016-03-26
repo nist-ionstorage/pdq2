@@ -1,3 +1,7 @@
+=============
+PDQ2 Overview
+=============
+
 .. image:: https://zenodo.org/badge/doi/10.5281/zenodo.11567.png
   :target: http://dx.doi.org/10.5281/zenodo.11567
   :alt: Zenodo DOI URL
@@ -9,11 +13,8 @@
   :alt: Documentation Status
 
 
-====
-PDQ2
-====
 
-Pretty darn quick interpolating arbitrary waveform generator.
+A pretty darn quick interpolating arbitrary waveform generator.
 
 
 Build

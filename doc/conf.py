@@ -239,6 +239,9 @@ latex_elements = {
 
 # Latex figure (float) alignment
 #'figure_align': 'htbp',
+
+  'classoptions': ',oneside,openany',
+  'babel': '\\usepackage[english]{babel}',
 }
 
 # Grouping the document tree into LaTeX files. List of tuples
