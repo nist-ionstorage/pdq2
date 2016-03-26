@@ -16,16 +16,37 @@ PDQ2
 Pretty darn quick interpolating arbitrary waveform generator.
 
 
-Build
-=====
+.. rubric:: Build
 
-Get Migen: https://github.com/m-labs/migen::
+Requirements:
+
+  * The legacy branch of Migen (https://github.com/m-labs/migen/tree/legacy)
+  * Xilinx ISE
+  * ``pyserial``
+
+Installation differes depending on what packaging system is used (or none at
+all). For ``pip``, an example set of installation commands is:
+
+::
+
+  $ # install Xilinx ISE
+  $ pip3 install -e git://github.com/m-labs/migen.git@legacy#egg=migen
+  $ pip3 install pyserial
+
+Then to build the gateware::
 
   $ python3 make.py
 
 
-Testbenches
-===========
+.. rubric:: Documentation
+
+The HTML documentation can be built with::
+
+  $ pip3 install -r doc/requirements.txt
+  $ make -C doc html
+
+
+.. rubric:: Testbenches
 
 ::
 
@@ -34,8 +55,7 @@ Testbenches
   $ python3 -m testbench.cli
 
 
-References
-==========
+.. rubric:: References
 
 Arbitrary waveform generator for quantum information processing with trapped
 ions; R. Bowler, U. Warring, J. W. Britton, B. C. Sawyer and J. Amini;
