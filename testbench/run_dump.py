@@ -27,7 +27,7 @@ from gateware.pdq2 import Pdq2Sim
 
 def main():
     tb = Pdq2Sim(open(sys.argv[1], "rb").read())
-    run_simulation(tb, vcd_name="pdq2.vcd", ncycles=6000)
+    run_simulation(tb, vcd_name="pdq2.vcd", ncycles=1000)
     out = np.array(tb.outputs, np.uint16).view(np.int16)
     plt.plot(out)
     plt.show()

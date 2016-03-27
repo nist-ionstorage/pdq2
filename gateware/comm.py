@@ -29,6 +29,16 @@ mem_layout = [("data", 16)]
 
 
 class MemWriter(Module):
+    """Handles the memory write protocol and writes data to the channel
+    memories.
+
+    Args:
+        board (Value): Address of this board.
+        dacs (list): List of :mod:`gateware.dac.Dac`.
+
+    Attributes:
+        sink (Sink[mem_layout]): 16 bit data sink.
+    """
     def __init__(self, board, dacs):
         self.sink = Sink(mem_layout)
 
@@ -100,6 +110,17 @@ class MemWriter(Module):
 
 
 class ResetGen(Module):
+    """Reset generator.
+
+    Asserts :attr:`reset` for a given number of cycles when triggered.
+
+    Args:
+        n (int): number of cycles.
+
+    Attributes:
+        trigger (Signal): Trigger input.
+        reset (Signal): Reset output. Active high.
+    """
     def __init__(self, n=1<<7):
         self.trigger = Signal()
         self.reset = Signal()
@@ -122,6 +143,20 @@ class ResetGen(Module):
 
 
 class Ctrl(Module):
+    """Control command handler.
+
+    Controls the input and output TTL signals, handled the excaped control
+    commands.
+
+    Args:
+        pads (Record): Pads containing the TTL input and output control signals
+        dacs (list): List of :mod:`gateware.dac.Dac`.
+
+    Attributes:
+        reset (Signal): Reset output from :class:`ResetGen`. Active high.
+        dcm_sel (Signal): DCM slock select. Enable clock doubler. Output.
+        sink (Sink[bus_layout]): 8 bit control data sink. Input.
+    """
     def __init__(self, pads, dacs):
         self.reset = Signal()
         self.dcm_sel = Signal()
@@ -183,6 +218,16 @@ class Ctrl(Module):
 
 
 class Comm(Module):
+    """USB Protocol handler.
+
+    Args:
+        ctrl_pads (Record): Control signal pads.
+        dacs (list): List of :mod:`gateware.dac.Dac`.
+
+    Attributes:
+        sink (Sink[bus_layout]): 8 bit data sink containing both the control
+            sequencences and the data stream.
+    """
     def __init__(self, ctrl_pads, dacs):
         self.submodules.unescaper = Unescaper(bus_layout, 0xa5)
         self.sink = self.unescaper.sink

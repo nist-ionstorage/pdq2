@@ -20,6 +20,24 @@ from migen.flow.actor import Source, Sink
 
 
 class Unescaper(Module):
+    """Split a data stream into an escaped low bandwidth command stream and an
+    unescaped high bandwidth data stream.
+
+    Items in the input stream that are escaped by being prefixed with the
+    escape character, will be directed to the :attr:`source_b` output Source.
+
+    Items that are not escaped, and the escaped escape character itself are
+    directed at the :attr:`source_a` output Source.
+
+    Args:
+        layout (layout): Stream layout to split.
+        escape (int): Escape character.
+
+    Attributes:
+        sink (Sink[layout]): Input stream.
+        source_a (Source[layout]): High bandwidth unescaped data Source.
+        source_b (Source[layout]): Low bandwidth command Source.
+    """
     def __init__(self, layout, escape=0xa5):
         self.sink = i = Sink(layout)
         self.source_a = oa = Source(layout)
