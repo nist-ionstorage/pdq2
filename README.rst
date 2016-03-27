@@ -23,25 +23,19 @@ Build
 Requirements:
 
   * The legacy branch of Migen (https://github.com/m-labs/migen/tree/legacy)
-  * Xilinx ISE
-  * ``pyserial``
+  * Xilinx ISE (WebPack is sufficient)
 
-Installation differes depending on what packaging system is used (or none at
-all). For ``pip``, an example set of installation commands is:
+Installation of Migen differs depending on what packaging system is used (or if one is used at all). Migen can be installed using ``pip``::
 
-::
-
-  $ # install Xilinx ISE
-  $ pip3 install -e git://github.com/m-labs/migen.git@legacy#egg=migen
-  $ pip3 install pyserial
+  $ pip install -e git://github.com/m-labs/migen.git@legacy#egg=migen
 
 Then to build the gateware::
 
-  $ python3 make.py
+  $ python make.py
 
 The HTML documentation can be built with::
 
-  $ pip3 install -r doc/requirements.txt
+  $ pip install -r doc/requirements.txt
   $ make -C doc html
 
 
@@ -57,6 +51,12 @@ An example how :class:`host.pdq2.Pdq2` can be used is the command line test inte
 Individual commands are described in the manual in :ref:`usb-protocol`.
 
 The wavesynth format is described with examples in :ref:`wavesynth-format`.
+
+To communicate with the device, run the testbenches and generate the data,
+the following additional packages are required::
+
+  * ``pyserial``
+  * ``scipy``
 
 
 Testbenches
